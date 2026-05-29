@@ -175,7 +175,7 @@ wheels = [
 ]
 
 [[package]]
-name = "cdp-python-backend-template"
+name = "ai-uc-rpa-guidance"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
