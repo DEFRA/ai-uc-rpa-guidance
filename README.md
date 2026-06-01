@@ -146,7 +146,7 @@ Follow the convention below for environment variables and secrets in local devel
 
 ### Development
 
-This app can be run locally by either using the Docker Compose project.
+This app can be run locally by either using the Docker Compose project or project scripts.
 
 #### Using Docker Compose
 
@@ -157,6 +157,14 @@ docker compose up --build
 ```
 
 If you want to enable hot-reloading, you can press the `w` key once the compose project is running to enable `watch` mode.
+
+#### Using Project Scripts
+
+To run the application using the project scripts, you can use the following command:
+
+```bash
+uv run ai-uc-rpa-guidance
+```
 
 ### Testing
 
