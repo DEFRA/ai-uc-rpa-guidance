@@ -44,9 +44,9 @@ This opinionated template uses the [`Fast API`](https://fastapi.tiangolo.com/) P
 
 ### Environment Variable Configuration
 
-The application uses Pydantic's `BaseSettings` for configuration management in `app/config.py`, automatically mapping environment variables to configuration fields.
+The application uses Pydantic's `BaseSettings` for configuration management in `app/config.py`, automatically mapping environment variables to configuration fields. Configuration is loaded using `python-dotenv` which supports both `.env` files and environment variables.
 
-In CDP, environment variables and secrets need to be set using CDP conventions.  See links below:
+In CDP, environment variables and secrets need to be set using CDP conventions. See links below:
 - [CDP App Config](https://github.com/DEFRA/cdp-documentation/blob/main/how-to/config.md)
 - [CDP Secrets](https://github.com/DEFRA/cdp-documentation/blob/main/how-to/secrets.md)
 
@@ -135,11 +135,10 @@ See the `Dockerfile` and `compose.yml` for details
 
 Follow the convention below for environment variables and secrets in local development.
 
-**Note** that it does not use `.env` or `python-dotenv` as this is not the convention in the CDP environment.
+**Environment variables:** `.env` file in the project root.
 
-**Environment variables:** `compose/aws.env`.
-
-**Secrets:** `compose/secrets.env`. You need to create this, as it's excluded from version control.
+**Compose directory:** The `compose/` directory contains helper scripts and environment configurations:
+- `compose/floci/start.d/10-setup-resources.sh` - This script is used to set up the necessary AWS resources in the local Floci environment. It runs when the Floci container starts, ensuring that your local AWS environment is ready for development.
 
 **Libraries:** Ensure the python virtual environment is configured and libraries are installed using `uv sync`, [as above](#python)
 
@@ -147,36 +146,25 @@ Follow the convention below for environment variables and secrets in local devel
 
 ### Development
 
-This app can be run locally by either using the Docker Compose project or via the provided script `scripts/start_dev_server.sh`.
+This app can be run locally by either using the Docker Compose project or project scripts.
 
 #### Using Docker Compose
 
 To run the application using Docker Compose, you can use the following command:
 
 ```bash
-docker compose --profile service up --build
+docker compose up --build
 ```
 
 If you want to enable hot-reloading, you can press the `w` key once the compose project is running to enable `watch` mode.
 
-#### Using the provided script
+#### Using Project Scripts
 
-To run the application using the provided script, you can execute:
+To run the application using the project scripts, you can use the following command:
 
 ```bash
-./scripts/start_dev_server.sh
+uv run ai-uc-rpa-guidance
 ```
-
-This script will:
-
-- Check if Docker is running
-- Start dependent services with Docker Compose (Localstack, MongoDB)
-- Set up environment variables for local development
-- Load configuration from compose/aws.env and compose/secrets.env
-- Verify the Python virtual environment is set up
-- Start the FastAPI application with hot-reload enabled
-
-The service will then run on `http://localhost:8085`
 
 ### Testing
 
