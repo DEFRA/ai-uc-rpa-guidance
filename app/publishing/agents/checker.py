@@ -20,5 +20,7 @@ async def get_instructions(
 ) -> str:
     """Retrieve system instructions for the publishing QA agent."""
     logger.info("[Publishing Agent] Loading instructions")
-    prompt = await ctx.deps.prompt_repository.get_prompt_by_name("checker_hello_world.md")
+    prompt = await ctx.deps.prompt_repository.get_prompt_by_name(
+        "checker_hello_world.md"
+    )
     return f"{prompt}\n\n{ctx.deps.document_text}"
