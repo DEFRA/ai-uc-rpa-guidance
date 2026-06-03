@@ -1,6 +1,6 @@
 services:
   floci:
-    image: floci/floci:e981a5afd790ec30e3670f1ef823cf2b7b9384c75cd4f234a75d8f1125d34ee6 # 1.5.19
+    image: floci/floci@sha256:e981a5afd790ec30e3670f1ef823cf2b7b9384c75cd4f234a75d8f1125d34ee6 # 1.5.19
     ports:
       - '4566:4566'
     env_file:
@@ -13,14 +13,14 @@ services:
       - cdp-tenant
 
   redis:
-    image: redis:3ce533b2b057f74b235d1d8697ae08b1b6ff0a5e16827ea6a377b6365693c7ed # 7.2.3-alpine3.18
+    image: redis@sha256:3ce533b2b057f74b235d1d8697ae08b1b6ff0a5e16827ea6a377b6365693c7ed # 7.2.3-alpine3.18
     ports:
       - '6379:6379'
     networks:
       - cdp-tenant
 
   mongodb:
-    image: mongo:4510cf3d7050003e958745adb25d2deb3fb907430716162d9cc1a92eda2a6047 # 7.0.28
+    image: mongo@sha256:4510cf3d7050003e958745adb25d2deb3fb907430716162d9cc1a92eda2a6047 # 7.0.28
     networks:
       - cdp-tenant
     ports:
@@ -35,7 +35,7 @@ services:
       retries: 3
       start_period: 30s
 
-  service:
+  ai-uc-rpa-guidance:
     build:
       context: .
       target: development
