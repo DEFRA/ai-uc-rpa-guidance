@@ -9,7 +9,7 @@ class AnalyseRequest(pydantic.BaseModel):
     document_text: str = pydantic.Field(
         ...,
         min_length=1,
-        description="The full text of the guidance document to analyze for quality issues",
+        description="The full text of the guidance document to analyse for quality issues",
         examples=["# Guidance Title\n\nThis is the guidance content..."],
     )
 

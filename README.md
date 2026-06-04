@@ -61,7 +61,7 @@ The application uses AWS Bedrock for LLM access. The following environment varia
 | `AWS_REGION` | AWS region for Bedrock service | `eu-west-2` |
 | `AWS_ACCESS_KEY_ID` | AWS access key ID | Set via CDP secrets |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret access key | Set via CDP secrets |
-| `CLAUDE_SONNET_MODEL_CONFIG` | Bedrock model configuration | `anthropic.claude-sonnet-4-6,eu.anthropic.claude-sonnet-4-6-20250514-v1:0` |
+| `CLAUDE_SONNET_MODEL_CONFIG` | Bedrock model configuration | `anthropic.claude-sonnet-4-6,arn:aws:bedrock:eu-west-2:123456789012:application-inference-profile/fake-profile-test` |
 
 The `CLAUDE_SONNET_MODEL_CONFIG` format is: `model_id,inference_profile[,guardrail_id:guardrail_version]`
 
@@ -176,7 +176,7 @@ If you want to enable hot-reloading, you can press the `w` key once the compose 
 To run the application using the project scripts, you can use the following command:
 
 ```bash
-uv run ai-uc-rpa-guidance
+uv run --env-file .env ai-uc-rpa-guidance
 ```
 
 ### Testing

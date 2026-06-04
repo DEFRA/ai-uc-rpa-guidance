@@ -52,7 +52,6 @@ class FileSystemPromptRepository(AbstractPromptRepository):
             fs: Optional FileSystem instance for testing. Defaults to FileSystem().
         """
         self.fs = fs or FileSystem()
-        self._cache: dict[str, str] = {}
         self.prompt_directory = prompt_directory
 
     async def get_prompt_by_name(self, name: str) -> str:
@@ -67,8 +66,6 @@ class FileSystemPromptRepository(AbstractPromptRepository):
         Raises:
             PromptNotFoundError: If the prompt file cannot be found.
         """
-        if name in self._cache:
-            return self._cache[name]
 
         full_path = os.path.join(self.prompt_directory, name)
 
@@ -77,7 +74,5 @@ class FileSystemPromptRepository(AbstractPromptRepository):
         except FileNotFoundError as err:
             msg = f"Prompt not found: {name}"
             raise PromptNotFoundError(msg) from err
-
-        self._cache[name] = content
 
         return content

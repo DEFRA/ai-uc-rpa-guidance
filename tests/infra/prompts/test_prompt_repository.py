@@ -65,49 +65,6 @@ class TestFileSystemPromptRepositoryLoad:
         assert result == prompt_content
 
 
-class TestFileSystemPromptRepositoryCaching:
-    @pytest.mark.asyncio
-    async def test_caching_prevents_re_read(
-        self, fake_fs: fakes.FakeFileSystem
-    ) -> None:
-        """Test that subsequent calls use cache and don't re-read file."""
-
-        prompt_name = "cached.txt"
-        prompt_content = "Cached content"
-
-        fake_fs.set_file(prompt_name, prompt_content)
-
-        repo = repository.FileSystemPromptRepository(prompt_directory="/", fs=fake_fs)
-
-        result1 = await repo.get_prompt_by_name(prompt_name)
-        result2 = await repo.get_prompt_by_name(prompt_name)
-
-        assert fake_fs.get_read_count(prompt_name) == 1
-        assert result1 == prompt_content
-        assert result2 == prompt_content
-
-    @pytest.mark.asyncio
-    async def test_cache_is_persistent_across_calls(
-        self, fake_fs: fakes.FakeFileSystem
-    ) -> None:
-        """Test that cache persists across multiple calls."""
-
-        prompt_name = "persistent.txt"
-        prompt_content = "This should be cached"
-
-        fake_fs.set_file(prompt_name, prompt_content)
-
-        repo = repository.FileSystemPromptRepository(prompt_directory="/", fs=fake_fs)
-
-        await repo.get_prompt_by_name(prompt_name)
-        await repo.get_prompt_by_name(prompt_name)
-
-        result = await repo.get_prompt_by_name(prompt_name)
-
-        assert repo._cache[prompt_name] == prompt_content
-        assert result == prompt_content
-
-
 class TestFileSystemPromptRepositoryErrors:
     """Test error handling."""
 
@@ -160,25 +117,3 @@ class TestFileSystemPromptRepositoryMultiplePrompts:
         for name, expected_content in prompts.items():
             result = await repo.get_prompt_by_name(name)
             assert result == expected_content
-
-    @pytest.mark.asyncio
-    async def test_cache_stores_different_prompts(
-        self, fake_fs: fakes.FakeFileSystem
-    ) -> None:
-        """Test that cache correctly stores multiple different prompts."""
-        prompts = {
-            "prompt1.txt": "Content 1",
-            "prompt2.txt": "Content 2",
-        }
-
-        for name, content in prompts.items():
-            fake_fs.set_file(name, content)
-
-        repo = repository.FileSystemPromptRepository(prompt_directory="/", fs=fake_fs)
-
-        for name in prompts:
-            await repo.get_prompt_by_name(name)
-
-        assert len(repo._cache) == 2
-        assert repo._cache["prompt1.txt"] == "Content 1"
-        assert repo._cache["prompt2.txt"] == "Content 2"
