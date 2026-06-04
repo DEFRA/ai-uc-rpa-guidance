@@ -91,7 +91,25 @@ class TestFileSystemPromptRepositoryErrors:
         with pytest.raises(repository.PromptNotFoundError) as exc_info:
             await repo.get_prompt_by_name(prompt_name)
 
-        assert prompt_name in str(exc_info.value)
+        error_message = str(exc_info.value)
+        assert prompt_name in error_message
+
+    @pytest.mark.asyncio
+    async def test_missing_prompt_error_message_includes_path(
+        self, fake_fs: fakes.FakeFileSystem
+    ) -> None:
+        """Test that the error message includes the full file path for debugging."""
+        prompt_name = "missing.txt"
+        expected_path = "/missing.txt"
+
+        repo = repository.FileSystemPromptRepository(prompt_directory="/", fs=fake_fs)
+
+        with pytest.raises(repository.PromptNotFoundError) as exc_info:
+            await repo.get_prompt_by_name(prompt_name)
+
+        error_message = str(exc_info.value)
+        assert expected_path in error_message
+        assert "path:" in error_message
 
 
 class TestFileSystemPromptRepositoryMultiplePrompts:

@@ -9,6 +9,20 @@ import aiofiles
 class PromptNotFoundError(Exception):
     """Raised when a prompt file cannot be found."""
 
+    def __init__(self, message: str, path: str | None = None) -> None:
+        """Initialize the exception with optional path information for debugging.
+
+        Args:
+            message: The error message.
+            path: Optional file path for debugging user errors.
+        """
+        full_message = message
+
+        if path:
+            full_message = f"{message} (path: {path})"
+
+        super().__init__(full_message)
+
 
 class FileSystem:
     """File system operations wrapper."""
@@ -73,6 +87,6 @@ class FileSystemPromptRepository(AbstractPromptRepository):
             content = await self.fs.read_file(full_path)
         except FileNotFoundError as err:
             msg = f"Prompt not found: {name}"
-            raise PromptNotFoundError(msg) from err
+            raise PromptNotFoundError(msg, path=full_path) from err
 
         return content
