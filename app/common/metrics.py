@@ -8,7 +8,9 @@ logger = getLogger(__name__)
 
 
 @metric_scope
-def __put_metric(metric_name: str, value: int, unit: str, metrics: Any) -> None:
+def __put_metric(
+    metric_name: str, value: int, unit: str, metrics: Any
+) -> None:  # pragma: no cover
     logger.debug("put metric: %s - %s - %s", metric_name, value, unit)
     metrics.put_metric(metric_name, value, unit, StorageResolution.STANDARD)
 

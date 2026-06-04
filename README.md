@@ -52,6 +52,19 @@ In CDP, environment variables and secrets need to be set using CDP conventions. 
 
 For local development - see [instructions below](#local-development).
 
+#### Bedrock Configuration
+
+The application uses AWS Bedrock for LLM access. The following environment variables are required:
+
+| Variable | Description | Example |
+| --- | --- | --- |
+| `AWS_REGION` | AWS region for Bedrock service | `eu-west-2` |
+| `AWS_ACCESS_KEY_ID` | AWS access key ID | Set via CDP secrets |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret access key | Set via CDP secrets |
+| `CLAUDE_SONNET_MODEL_CONFIG` | Bedrock model configuration | `anthropic.claude-sonnet-4-6,arn:aws:bedrock:eu-west-2:123456789012:application-inference-profile/fake-profile-test` |
+
+The `CLAUDE_SONNET_MODEL_CONFIG` format is: `model_id,inference_profile[,guardrail_id:guardrail_version]`
+
 ### Linting and Formatting
 
 This project uses [Ruff](https://github.com/astral-sh/ruff) for linting and formatting Python code.
@@ -163,7 +176,7 @@ If you want to enable hot-reloading, you can press the `w` key once the compose 
 To run the application using the project scripts, you can use the following command:
 
 ```bash
-uv run ai-uc-rpa-guidance
+uv run --env-file .env ai-uc-rpa-guidance
 ```
 
 ### Testing
@@ -180,13 +193,46 @@ uv run pytest
 
 ## API endpoints
 
-| Endpoint             | Description                    |
-| :------------------- | :----------------------------- |
-| `GET: /docs`         | Automatic API Swagger docs     |
-| `GET: /health`       | Health check endpoint          |
-| `GET: /example/test` | Simple example endpoint        |
-| `GET: /example/db`   | Database query example         |
-| `GET: /example/http` | HTTP client example            |
+| Endpoint                 | Method | Description                           |
+| :----------------------- | :----- | :------------------------------------ |
+| `GET: /docs`             | GET    | Automatic API Swagger docs            |
+| `GET: /health`           | GET    | Health check endpoint                 |
+| `POST: /publishing/analyse` | POST | Analyse guidance document for QA issues |
+
+### Publishing QA Analysis
+
+The `/publishing/analyse` endpoint performs AI-driven quality assurance on guidance documents using Bedrock Claude Sonnet 4.6.
+
+#### Example Request
+
+```bash
+curl -X POST http://localhost:8086/publishing/analyse \
+  -H "Content-Type: application/json" \
+  -d '{
+    "document_text": "# My Guidance Document\n\nThis is a section with instructions.\n\nStep 1: Do this.\nStep 2: Do that."
+  }'
+```
+
+#### Example Response
+
+```json
+{
+  "status": "completed",
+  "findings": [
+    {
+      "section": "Step 1",
+      "issue": "Missing context about prerequisites",
+      "severity": "medium",
+      "recommendation": "Add information about what the user needs to know before starting"
+    }
+  ],
+  "summary": "Document is mostly clear but needs additional context in the setup section",
+  "usage": {
+    "input_tokens": 156,
+    "output_tokens": 89
+  }
+}
+```
 
 ## Custom Cloudwatch Metrics
 

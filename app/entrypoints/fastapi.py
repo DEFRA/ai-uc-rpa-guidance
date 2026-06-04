@@ -8,8 +8,8 @@ import uvicorn
 
 from app import config as app_config
 from app.common import mongo, tracing
-from app.example import router as example_router
 from app.health import router as health_router
+from app.publishing import router as publishing_router
 
 logger = getLogger(__name__)
 
@@ -31,7 +31,7 @@ app = fastapi.FastAPI(lifespan=lifespan)
 app.add_middleware(tracing.TraceIdMiddleware)
 
 app.include_router(health_router.router)
-app.include_router(example_router.router)
+app.include_router(publishing_router.router)
 
 
 def main() -> None:  # pragma: no cover

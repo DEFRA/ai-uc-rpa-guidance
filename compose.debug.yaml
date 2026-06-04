@@ -1,0 +1,3 @@
+services:
+  ai-uc-rpa-guidance:
+    command: -Xfrozen_modules=off -m debugpy --listen 0.0.0.0:5679 --wait-for-client -m app.entrypoints.fastapi
