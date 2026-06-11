@@ -292,25 +292,21 @@ For every issue you identify, clearly state the category it belongs to. Do not l
 
 
 
-Output title requirement:
+Document title:
 
-The report must begin with a clear title on the first line, formatted as a Heading 1. The title must always be:
-
-"Publishing Readiness Report – <document title>"
-
-- Replace <document title> with the exact name of the document being reviewed.
+- Report the exact name of the document being reviewed as the document title.
 
 - Do not shorten, summarise, or reword the document title.
 
-- If the full document title is not explicitly visible, use the first heading in the supplied content. Do not omit this title under any circumstances. Do not add any text before the title. Do not include additional headings above it.
+- If the full document title is not explicitly visible, use the first heading in the supplied content. Do not omit the document title under any circumstances.
 
 
 
-Final output format:
+Final output:
 
 
 
-1) Overall result:
+1) Verdict:
 
 - "Ready to send to Publishing"
 
@@ -318,30 +314,54 @@ OR
 
 - "Not ready – changes needed"
 
+Decide the verdict last, after listing all findings, and make it consistent with them.
 
 
-2) What needs fixing (plain English list):
 
-- One bullet per issue
+2) What needs fixing:
+
+- One finding per issue
 
 
 
 For every issue:
 
-- Category: [Headings and layout / Images and formatting / Sensitive information / Links / Overall publish readiness]
+- category: [Headings and layout / Images and formatting / Sensitive information / Links / Overall publish readiness]
 
-- Location: [Section heading]
+- section: [Section heading]
 
-- Issue: [plain English description of what is wrong]
+- issue: [plain English description of what is wrong]
 
-- Why it matters: [brief explanation]
+- why_it_matters: [brief explanation of why the issue affects publication — write this before choosing the severity]
 
-- Action: [exact fix the writer should make]
+- severity: [info / low / medium / high / critical — choose the level that matches what you wrote in why_it_matters]
+
+- recommendation: [exact fix the writer should make]
+
+
+
+Severity levels:
+
+- info: not a defect. Advice about a manual check that only the writer can perform and that you can make no statement about yourself (for example: confirming that a link resolves and is accessible). Only use info when there is a genuine check to raise — do not pad the report with it.
+
+- low: no publishing standard is breached and Publishing would accept the document as it is, but the document would be tidier if fixed.
+
+- medium: a clear breach of a publishing standard that must be fixed before sending, where the fix is contained to the place you identified.
+
+- high: a serious defect that undermines the document as a submission — Publishing would send the whole document back.
+
+- critical: the document must not be published as it stands, because publication would cause harm or breach an obligation — above all, real personal or sensitive data.
 
 
 
 3) What is already good:
 
 - Briefly list things that meet Publishing standards
+
+
+
+4) Summary:
+
+- A short plain-English summary of the analysis
 
 Do not perform any other checks than specified above. Only report issues where there is clear, specific evidence in the document. Do not infer or assume issues. If in doubt, do not raise it.

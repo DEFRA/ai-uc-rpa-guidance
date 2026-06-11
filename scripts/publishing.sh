@@ -44,13 +44,20 @@ with open(sys.argv[1]) as f:
     r = json.load(f)
 
 print("status:", r["status"])
+print("title:", r["document_title"])
+print("verdict:", r["verdict"])
 print("summary:", r["summary"])
 findings = r.get("findings", [])
 print(f"findings: {len(findings)}")
 for finding in findings:
-    print(f"  [{finding['severity']}] {finding['section']}")
+    print(f"  [{finding['severity']}] {finding['category']} – {finding['section']}")
     print(f"      issue: {finding['issue']}")
+    print(f"      why:   {finding['why_it_matters']}")
     print(f"      fix:   {finding['recommendation']}")
+good_points = r.get("good_points", [])
+print(f"good points: {len(good_points)}")
+for point in good_points:
+    print(f"  + {point}")
 usage = r.get("usage")
 if usage:
     print("usage:", usage)
