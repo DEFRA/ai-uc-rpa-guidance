@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from app.guidance.pipeline.models import (
     DocumentTree,
     ImageNode,
@@ -174,3 +176,82 @@ class TestDocumentTree:
         restored = DocumentTree.from_dict(d)
         assert restored.title == "Empty"
         assert restored.children == []
+
+
+def _make_tree() -> DocumentTree:
+    return DocumentTree(
+        title="Doc",
+        children=[
+            SectionNode(
+                heading="Intro",
+                level=1,
+                number="1",
+                content=[ParagraphNode(spans=[InlineSpan(text="intro text")])],
+                children=[
+                    SectionNode(heading="Background", level=2, number="1.1"),
+                    SectionNode(heading="Scope", level=2, number="1.2"),
+                ],
+            ),
+            SectionNode(
+                heading="Details",
+                level=1,
+                number="2",
+                content=[ParagraphNode(spans=[InlineSpan(text="details text")])],
+            ),
+        ],
+    )
+
+
+class TestDocumentTreeIndex:
+    def test_section_lookup(self):
+        tree = _make_tree()
+        assert tree.section("1").heading == "Intro"
+        assert tree.section("1.1").heading == "Background"
+        assert tree.section("1.2").heading == "Scope"
+        assert tree.section("2").heading == "Details"
+
+    def test_section_missing_raises(self):
+        tree = _make_tree()
+        with pytest.raises(KeyError):
+            tree.section("9")
+
+    def test_sections_order(self):
+        tree = _make_tree()
+        numbers = [s.number for s in tree.sections]
+        assert numbers == ["1", "1.1", "1.2", "2"]
+
+    def test_sections_headings(self):
+        tree = _make_tree()
+        headings = [s.heading for s in tree.sections]
+        assert headings == ["Intro", "Background", "Scope", "Details"]
+
+    def test_extract_title(self):
+        tree = _make_tree()
+        chunk = tree.extract("1")
+        assert chunk.title == "Doc — 1 Intro"
+
+    def test_extract_contains_section(self):
+        tree = _make_tree()
+        chunk = tree.extract("1")
+        assert len(chunk.children) == 1
+        assert chunk.children[0].heading == "Intro"
+
+    def test_extract_preserves_children(self):
+        tree = _make_tree()
+        chunk = tree.extract("1")
+        assert len(chunk.children[0].children) == 2
+
+    def test_extract_preserves_content(self):
+        tree = _make_tree()
+        chunk = tree.extract("2")
+        content = chunk.children[0].content
+        assert len(content) == 1
+        assert isinstance(content[0], ParagraphNode)
+
+    def test_extract_renderable(self):
+        from app.guidance.pipeline.renderers.markdown import to_markdown
+
+        tree = _make_tree()
+        md = to_markdown(tree.extract("1"))
+        assert "# Doc — 1 Intro" in md
+        assert "## 1 Intro" in md

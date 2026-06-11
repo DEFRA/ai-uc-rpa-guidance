@@ -1,22 +1,11 @@
 import html
+from functools import singledispatch
 
 from app.guidance.pipeline import models
 
 
 def _render_spans(spans: list[models.InlineSpan]) -> str:
-    """Render inline spans using HTML tags for unambiguous nested formatting.
-
-    HTML is used instead of Markdown delimiters because Word documents
-    commonly produce multiple adjacent runs with the same formatting, which
-    causes delimiter-collision issues (e.g. ``**word1****word2**``) in
-    Markdown.  HTML tags nest cleanly regardless of adjacency or combination:
-
-    * bold link  →  ``<strong><a href="url">text</a></strong>``
-    * bold+italic →  ``<strong><em>text</em></strong>``
-    * underline   →  ``<u>text</u>``
-
-    Text content and URLs are HTML-escaped to prevent broken markup.
-    """
+    """Render inline spans using HTML tags for unambiguous nested formatting."""
     parts: list[str] = []
     for span in spans:
         text = html.escape(span.text)
@@ -34,7 +23,6 @@ def _render_spans(spans: list[models.InlineSpan]) -> str:
 
 
 def _render_table(table: models.TableNode) -> list[str]:
-    """Render a TableNode as a GFM pipe table."""
     if not table.headers:
         return []
 
@@ -45,7 +33,6 @@ def _render_table(table: models.TableNode) -> list[str]:
     lines.append(separator)
 
     for row in table.rows:
-        # Pad row to match header count
         padded = row + [""] * (len(table.headers) - len(row))
         lines.append("| " + " | ".join(padded[: len(table.headers)]) + " |")
 
@@ -54,7 +41,6 @@ def _render_table(table: models.TableNode) -> list[str]:
 
 
 def _render_list(list_node: models.ListNode) -> list[str]:
-    """Render a ListNode as Markdown list items."""
     lines: list[str] = []
     for idx, item in enumerate(list_node.items, start=1):
         indent = "  " * item.level
@@ -67,8 +53,32 @@ def _render_list(list_node: models.ListNode) -> list[str]:
     return lines
 
 
+@singledispatch
+def _render_content(node: models.ContentNode) -> list[str]:  # noqa: ARG001 - singledispatch fallback for future node types
+    return []
+
+
+@_render_content.register
+def _(node: models.ParagraphNode) -> list[str]:
+    return [_render_spans(node.spans), ""]
+
+
+@_render_content.register
+def _(node: models.TableNode) -> list[str]:
+    return _render_table(node)
+
+
+@_render_content.register
+def _(node: models.ListNode) -> list[str]:
+    return _render_list(node)
+
+
+@_render_content.register
+def _(node: models.ImageNode) -> list[str]:
+    return [f"![{node.alt_text}]({node.rel_path})", ""]
+
+
 def _render_section(section: models.SectionNode) -> list[str]:
-    """Recursively render a section and its children."""
     lines: list[str] = []
 
     prefix = "#" * (section.level + 1)
@@ -76,16 +86,7 @@ def _render_section(section: models.SectionNode) -> list[str]:
     lines.append("")
 
     for node in section.content:
-        if isinstance(node, models.ParagraphNode):
-            lines.append(_render_spans(node.spans))
-            lines.append("")
-        elif isinstance(node, models.TableNode):
-            lines.extend(_render_table(node))
-        elif isinstance(node, models.ListNode):
-            lines.extend(_render_list(node))
-        elif isinstance(node, models.ImageNode):
-            lines.append(f"![{node.alt_text}]({node.rel_path})")
-            lines.append("")
+        lines.extend(_render_content(node))
 
     for child in section.children:
         lines.extend(_render_section(child))

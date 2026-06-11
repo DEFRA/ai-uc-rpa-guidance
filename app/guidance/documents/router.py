@@ -1,6 +1,7 @@
 """FastAPI router for the guidance document management endpoints."""
 
 import logging
+import uuid
 from typing import Annotated
 
 import fastapi
@@ -46,7 +47,7 @@ async def initiate_document_upload(
     try:
         upload_id = await guidance_service.initiate_upload(payload)
     except Exception as e:
-        logger.error("Failed to initiate upload: %s", str(e))
+        logger.exception("Failed to initiate upload")
         raise fastapi.HTTPException(
             status_code=fastapi.status.HTTP_502_BAD_GATEWAY,
             detail="Failed to initiate upload with CDP uploader service",
@@ -68,7 +69,7 @@ async def initiate_document_upload(
     },
 )
 async def handle_upload_callback(
-    document_id: str,
+    document_id: uuid.UUID,
     payload: api_schemas.CdpUploaderStatusPayload,
     guidance_service: Annotated[
         service.GuidanceService,
@@ -113,10 +114,10 @@ async def list_documents(
         service.GuidanceService,
         fastapi.Depends(dependencies.get_guidance_service),
     ],
-    page: int = fastapi.Query(1, ge=1, description="Page number (1-based)"),
-    page_size: int = fastapi.Query(
-        10, ge=1, le=100, description="Number of items per page"
-    ),
+    page: Annotated[int, fastapi.Query(ge=1, description="Page number (1-based)")] = 1,
+    page_size: Annotated[
+        int, fastapi.Query(ge=1, le=100, description="Number of items per page")
+    ] = 10,
 ) -> api_schemas.DocumentListResponse:
     """Get a paginated list of all guidance documents.
 

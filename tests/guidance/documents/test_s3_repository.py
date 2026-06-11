@@ -1,10 +1,11 @@
 """Tests for GuidanceS3Repository."""
 
+import uuid
 from unittest.mock import MagicMock
 
 import pytest
 
-from app.guidance.documents.s3_repository import GuidanceS3Repository
+from app.guidance.documents import s3_repository
 
 
 @pytest.fixture
@@ -13,14 +14,14 @@ def mock_s3() -> MagicMock:
 
 
 @pytest.fixture
-def repo(mock_s3: MagicMock) -> GuidanceS3Repository:
-    return GuidanceS3Repository(mock_s3, "guidance-bucket")
+def repo(mock_s3: MagicMock) -> s3_repository.GuidanceS3Repository:
+    return s3_repository.GuidanceS3Repository(mock_s3, "guidance-bucket")
 
 
 class TestDownloadDocx:
     @pytest.mark.asyncio
     async def test_returns_bytes(
-        self, repo: GuidanceS3Repository, mock_s3: MagicMock
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
     ) -> None:
         content = b"docx content"
         body_mock = MagicMock()
@@ -36,7 +37,7 @@ class TestDownloadDocx:
 
     @pytest.mark.asyncio
     async def test_returns_raw_bytes(
-        self, repo: GuidanceS3Repository, mock_s3: MagicMock
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
     ) -> None:
         body_mock = MagicMock()
         body_mock.read.return_value = b"bytes"
@@ -53,9 +54,9 @@ class TestDownloadDocx:
 class TestUploadContent:
     @pytest.mark.asyncio
     async def test_uploads_to_correct_key(
-        self, repo: GuidanceS3Repository, mock_s3: MagicMock
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
     ) -> None:
-        doc_id = "507f1f77bcf86cd799439011"
+        doc_id = uuid.UUID("507f1f77-bcf8-6cd7-9943-9011aabbccdd")
         await repo.upload_content(doc_id, "# Hello\n")
 
         mock_s3.put_object.assert_called_once_with(

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -16,7 +17,7 @@ class AbstractGuidanceStorageRepository(ABC):
         """Download the source .docx from storage."""
 
     @abstractmethod
-    async def upload_content(self, document_id: str, markdown: str) -> None:
+    async def upload_content(self, document_id: uuid.UUID, markdown: str) -> None:
         """Upload rendered Markdown content to storage."""
 
 
@@ -54,7 +55,7 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
 
         return body
 
-    async def upload_content(self, document_id: str, markdown: str) -> None:
+    async def upload_content(self, document_id: uuid.UUID, markdown: str) -> None:
         """Upload rendered Markdown to parsed_guidance/{document_id}/content.md.
 
         Args:

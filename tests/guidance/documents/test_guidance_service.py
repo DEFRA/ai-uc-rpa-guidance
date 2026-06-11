@@ -1,13 +1,12 @@
 """Tests for the guidance service."""
 
+import uuid
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import bson
 import pytest
 
 from app.guidance.documents import api_schemas, models, parser, service
-from app.guidance.documents.parser import ParseResult
 
 
 class TestInitiateUpload:
@@ -38,7 +37,7 @@ class TestInitiateUpload:
         mock_repository: AsyncMock,
     ) -> None:
         """Test successful document upload initiation."""
-        upload_id = str(bson.ObjectId())
+        upload_id = "507f1f77bcf86cd799439011"
 
         with patch(
             "app.guidance.documents.service.http_client.create_async_client"
@@ -131,14 +130,14 @@ class TestGuidanceService:
         mock_parser: AsyncMock,
     ) -> None:
         """Test successful callback handling."""
-        document_id = str(bson.ObjectId())
+        document_id = uuid.uuid4()
         document = models.GuidanceDocument(
             id=document_id,
             status=models.ExtractionStatus.PENDING,
         )
 
         mock_repository.get_document.return_value = document
-        mock_parser.parse.return_value = ParseResult(
+        mock_parser.parse.return_value = parser.ParseResult(
             status=models.ExtractionStatus.COMPLETE,
             content="# Parsed content",
         )
@@ -198,7 +197,7 @@ class TestGuidanceService:
         mock_repository: AsyncMock,
     ) -> None:
         """Test callback handling when document doesn't exist."""
-        document_id = str(bson.ObjectId())
+        document_id = uuid.uuid4()
         mock_repository.get_document.return_value = None
 
         payload = api_schemas.CdpUploaderStatusPayload(
@@ -216,7 +215,7 @@ class TestGuidanceService:
         mock_repository: AsyncMock,
     ) -> None:
         """Test successful document listing."""
-        document_id = str(bson.ObjectId())
+        document_id = uuid.uuid4()
         document = models.GuidanceDocument(
             id=document_id,
             filename="test.pdf",
@@ -234,7 +233,7 @@ class TestGuidanceService:
         assert response.total == 1
         assert response.page == 1
         assert response.page_size == 10
-        assert response.items[0].id == document_id
+        assert response.items[0].id == str(document_id)
 
     @pytest.mark.asyncio
     async def test_list_documents_empty(
@@ -259,7 +258,7 @@ class TestGuidanceService:
         """Test document listing with different pages."""
         documents = [
             models.GuidanceDocument(
-                id=str(bson.ObjectId()),
+                id=uuid.uuid4(),
                 filename=f"test{i}.pdf",
                 path=f"s3://guidance-bucket/test{i}.pdf",
                 status=models.ExtractionStatus.COMPLETE,

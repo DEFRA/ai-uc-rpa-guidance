@@ -1,5 +1,6 @@
 """Domain models for the guidance document management domain."""
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -19,7 +20,7 @@ class ExtractionStatus(StrEnum):
 class GuidanceDocument:
     """Domain model for a guidance document."""
 
-    id: str
+    id: uuid.UUID
     title: str | None = None
     description: str | None = None
     filename: str | None = None
@@ -42,7 +43,7 @@ class GuidanceDocument:
             A GuidanceDocument model instance.
         """
         return cls(
-            id=str(doc["_id"]),
+            id=doc["_id"],
             title=doc.get("title"),
             description=doc.get("description"),
             filename=doc.get("filename"),

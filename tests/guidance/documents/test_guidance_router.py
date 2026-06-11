@@ -120,7 +120,7 @@ class TestCallbackEndpoint:
         """Test callback handler with valid CDP uploader payload."""
         mock_guidance_service.handle_callback.return_value = None
 
-        document_id = "507f1f77bcf86cd799439011"
+        document_id = "12345678-1234-5678-1234-567812345678"
         response = client_with_mocks.post(
             f"/guidance/documents/{document_id}/callback",
             json={
@@ -144,17 +144,16 @@ class TestCallbackEndpoint:
     def test_callback_with_invalid_document_id(
         self, client_with_mocks: fastapi.testclient.TestClient
     ) -> None:
-        """Test callback with any string document ID is accepted at the router level."""
+        """Test callback with a non-UUID document ID is rejected at the router level."""
         response = client_with_mocks.post(
-            "/guidance/documents/some-arbitrary-id/callback",
+            "/guidance/documents/not-a-uuid/callback",
             json={
                 "uploadStatus": "completed",
                 "form": {},
             },
         )
 
-        # document_id is now a plain string — no format validation at the router level
-        assert response.status_code in (204, 404)
+        assert response.status_code == 422
 
     def test_callback_with_nonexistent_document(
         self,
@@ -166,7 +165,7 @@ class TestCallbackEndpoint:
             "Document not found"
         )
 
-        document_id = "507f1f77bcf86cd799439011"
+        document_id = "12345678-1234-5678-1234-567812345678"
         response = client_with_mocks.post(
             f"/guidance/documents/{document_id}/callback",
             json={

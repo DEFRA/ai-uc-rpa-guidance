@@ -1,29 +1,39 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, cast
 
 
+class Serializable:
+    """Mixin providing generic to_dict() for dataclasses.
+
+    Skips fields listed in _skip_fields. Omits falsy primitive values to keep
+    output compact (matching the original InlineSpan sparse-dict behavior).
+    """
+
+    _skip_fields: frozenset[str] = frozenset()
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {}
+        for f in fields(self):  # type: ignore[arg-type]
+            if f.name in self._skip_fields:
+                continue
+            val = getattr(self, f.name)
+            if isinstance(val, list):
+                d[f.name] = [v.to_dict() if hasattr(v, "to_dict") else v for v in val]
+            elif hasattr(val, "to_dict"):
+                d[f.name] = val.to_dict()
+            elif val is True or (val and val is not False):
+                d[f.name] = val
+        return d
+
+
 @dataclass
-class InlineSpan:
+class InlineSpan(Serializable):
     text: str
     bold: bool = False
     italic: bool = False
     underline: bool = False
     hyperlink: str = ""
     color: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        d: dict[str, Any] = {"text": self.text}
-        if self.bold:
-            d["bold"] = True
-        if self.italic:
-            d["italic"] = True
-        if self.underline:
-            d["underline"] = True
-        if self.hyperlink:
-            d["hyperlink"] = self.hyperlink
-        if self.color:
-            d["color"] = self.color
-        return d
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> InlineSpan:
@@ -38,15 +48,9 @@ class InlineSpan:
 
 
 @dataclass
-class ParagraphNode:
+class ParagraphNode(Serializable):
     spans: list[InlineSpan]
     node_type: str = field(default="paragraph", init=False)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "node_type": self.node_type,
-            "spans": [s.to_dict() for s in self.spans],
-        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ParagraphNode:
@@ -54,15 +58,9 @@ class ParagraphNode:
 
 
 @dataclass
-class ListItemNode:
+class ListItemNode(Serializable):
     spans: list[InlineSpan]
     level: int = 0
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "spans": [s.to_dict() for s in self.spans],
-            "level": self.level,
-        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ListItemNode:
@@ -73,17 +71,10 @@ class ListItemNode:
 
 
 @dataclass
-class ListNode:
+class ListNode(Serializable):
     items: list[ListItemNode]
     list_type: str = "bullet"
     node_type: str = field(default="list", init=False)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "node_type": self.node_type,
-            "list_type": self.list_type,
-            "items": [item.to_dict() for item in self.items],
-        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ListNode:
@@ -94,17 +85,10 @@ class ListNode:
 
 
 @dataclass
-class TableNode:
+class TableNode(Serializable):
     headers: list[str]
     rows: list[list[str]]
     node_type: str = field(default="table", init=False)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "node_type": self.node_type,
-            "headers": self.headers,
-            "rows": self.rows,
-        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TableNode:
@@ -112,19 +96,15 @@ class TableNode:
 
 
 @dataclass
-class ImageNode:
+class ImageNode(Serializable):
     rel_path: str
     alt_text: str = ""
     data: bytes = field(default_factory=bytes)
     ext: str = ".png"
     node_type: str = field(default="image", init=False)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "node_type": self.node_type,
-            "rel_path": self.rel_path,
-            "alt_text": self.alt_text,
-        }
+    _skip_fields: frozenset[str] = field(
+        default=frozenset({"data", "ext", "_skip_fields"}), init=False, repr=False
+    )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ImageNode:
@@ -147,21 +127,12 @@ def _content_node_from_dict(data: dict[str, Any]) -> ContentNode:
 
 
 @dataclass
-class SectionNode:
+class SectionNode(Serializable):
     heading: str
     level: int
     number: str = ""
     children: list[SectionNode] = field(default_factory=list)
     content: list[ContentNode] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "heading": self.heading,
-            "level": self.level,
-            "number": self.number,
-            "children": [c.to_dict() for c in self.children],
-            "content": [n.to_dict() for n in self.content],
-        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SectionNode:
@@ -176,15 +147,45 @@ class SectionNode:
 
 
 @dataclass
-class DocumentTree:
+class DocumentTree(Serializable):
     title: str
     children: list[SectionNode] = field(default_factory=list)
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "title": self.title,
-            "children": [c.to_dict() for c in self.children],
-        }
+    # _index and _order are plain instance attributes (not dataclass fields),
+    # so they are invisible to to_dict() and built lazily on first access.
+
+    def _ensure_index(self) -> None:
+        if hasattr(self, "_index"):
+            return
+
+        self._index: dict[str, SectionNode] = {}
+        self._order: list[str] = []
+
+        def _walk(sections: list[SectionNode]) -> None:
+            for s in sections:
+                self._index[s.number] = s
+                self._order.append(s.number)
+                _walk(s.children)
+
+        _walk(self.children)
+
+    def section(self, number: str) -> SectionNode:
+        """Return the section with the given number. O(1)."""
+        self._ensure_index()
+        return self._index[number]
+
+    def extract(self, number: str) -> DocumentTree:
+        """Return the section as a self-contained DocumentTree."""
+        s = self.section(number)
+        chunk = DocumentTree(title=f"{self.title} — {s.number} {s.heading}")
+        chunk.children = [s]
+        return chunk
+
+    @property
+    def sections(self) -> list[SectionNode]:
+        """All sections in document order, flattened."""
+        self._ensure_index()
+        return [self._index[n] for n in self._order]
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> DocumentTree:

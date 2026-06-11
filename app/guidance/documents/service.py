@@ -1,9 +1,8 @@
 """Business logic service for guidance document management."""
 
 import logging
+import uuid
 from datetime import UTC, datetime
-
-import bson
 
 from app import config
 from app.common import http_client
@@ -43,7 +42,7 @@ class GuidanceService:
         Raises:
             httpx.HTTPStatusError: If the CDP uploader service returns an error.
         """
-        document_id = str(bson.ObjectId())
+        document_id = uuid.uuid4()
 
         async with http_client.create_async_client(
             settings.cdp_uploader_timeout
@@ -55,7 +54,7 @@ class GuidanceService:
                     "s3Bucket": settings.guidance_s3_bucket,
                     "s3Path": "original_docs",
                     "callback": f"{settings.callback_base_url}/guidance/documents/{document_id}/callback",
-                    "metadata": {"document_id": document_id},
+                    "metadata": {"document_id": str(document_id)},
                 },
             )
 
@@ -83,7 +82,7 @@ class GuidanceService:
 
     async def handle_callback(
         self,
-        document_id: str,
+        document_id: uuid.UUID,
         payload: api_schemas.CdpUploaderStatusPayload,
     ) -> None:
         """Process callback from CDP uploader service.
@@ -117,7 +116,7 @@ class GuidanceService:
 
                 logger.info(
                     "Callback processed and parse triggered for document %s",
-                    document_id,
+                    document.id,
                 )
 
                 # Only process the first file upload detail found in the form

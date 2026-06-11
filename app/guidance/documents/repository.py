@@ -1,8 +1,8 @@
 """MongoDB repository for guidance documents."""
 
 import logging
+import uuid
 
-import bson
 import pymongo
 
 from app.guidance.documents import models
@@ -36,13 +36,10 @@ class GuidanceRepository:
             document: The guidance document to persist.
 
         Returns:
-            The persisted document with its generated ID set.
+            The persisted document.
         """
-        object_id = bson.ObjectId()
-        document.id = str(object_id)
-
         doc_dict = {
-            "_id": object_id,
+            "_id": document.id,
             "title": document.title,
             "description": document.description,
             "filename": document.filename,
@@ -61,17 +58,17 @@ class GuidanceRepository:
 
     async def get_document(
         self,
-        document_id: str,
+        document_id: uuid.UUID,
     ) -> models.GuidanceDocument | None:
         """Retrieve a guidance document by ID.
 
         Args:
-            document_id: The document ID (MongoDB ObjectId hex string).
+            document_id: The document UUID.
 
         Returns:
             The guidance document or None if not found.
         """
-        result = await self.collection.find_one({"_id": bson.ObjectId(document_id)})
+        result = await self.collection.find_one({"_id": document_id})
 
         if not result:
             return None
@@ -104,7 +101,7 @@ class GuidanceRepository:
         }
 
         await self.collection.update_one(
-            {"_id": bson.ObjectId(document.id)},
+            {"_id": document.id},
             {"$set": doc_dict},
         )
         logger.info("Updated guidance document %s", document.id)

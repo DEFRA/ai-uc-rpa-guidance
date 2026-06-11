@@ -7,9 +7,7 @@ import bson
 import docx
 import pytest
 
-from app.guidance.documents import models
-from app.guidance.documents.parser import ParseResult, PipelineDocumentParser
-from app.guidance.documents.s3_repository import GuidanceS3Repository
+from app.guidance.documents import models, parser, s3_repository
 
 
 def _make_minimal_docx(title: str = "") -> bytes:
@@ -37,21 +35,21 @@ def _make_document(
 
 @pytest.fixture
 def s3_repo() -> AsyncMock:
-    repo = AsyncMock(spec=GuidanceS3Repository)
+    repo = AsyncMock(spec=s3_repository.GuidanceS3Repository)
     repo.download_docx.return_value = _make_minimal_docx()
     return repo
 
 
 @pytest.fixture
-def parser_instance(s3_repo: AsyncMock) -> PipelineDocumentParser:
-    return PipelineDocumentParser(s3_repo)
+def parser_instance(s3_repo: AsyncMock) -> parser.PipelineDocumentParser:
+    return parser.PipelineDocumentParser(s3_repo)
 
 
 class TestPipelineDocumentParserSuccess:
     @pytest.mark.asyncio
     async def test_returns_complete_status(
         self,
-        parser_instance: PipelineDocumentParser,
+        parser_instance: parser.PipelineDocumentParser,
     ) -> None:
         result = await parser_instance.parse(_make_document())
 
@@ -60,7 +58,7 @@ class TestPipelineDocumentParserSuccess:
     @pytest.mark.asyncio
     async def test_content_populated(
         self,
-        parser_instance: PipelineDocumentParser,
+        parser_instance: parser.PipelineDocumentParser,
     ) -> None:
         result = await parser_instance.parse(_make_document())
 
@@ -71,7 +69,7 @@ class TestPipelineDocumentParserSuccess:
     @pytest.mark.asyncio
     async def test_error_message_none_on_success(
         self,
-        parser_instance: PipelineDocumentParser,
+        parser_instance: parser.PipelineDocumentParser,
     ) -> None:
         result = await parser_instance.parse(_make_document())
 
@@ -80,7 +78,7 @@ class TestPipelineDocumentParserSuccess:
     @pytest.mark.asyncio
     async def test_markdown_uploaded_to_s3(
         self,
-        parser_instance: PipelineDocumentParser,
+        parser_instance: parser.PipelineDocumentParser,
         s3_repo: AsyncMock,
     ) -> None:
         document = _make_document()
@@ -91,7 +89,7 @@ class TestPipelineDocumentParserSuccess:
     @pytest.mark.asyncio
     async def test_docx_downloaded_with_correct_key(
         self,
-        parser_instance: PipelineDocumentParser,
+        parser_instance: parser.PipelineDocumentParser,
         s3_repo: AsyncMock,
     ) -> None:
         await parser_instance.parse(
@@ -106,7 +104,7 @@ class TestPipelineDocumentParserSuccess:
         s3_repo: AsyncMock,
     ) -> None:
         s3_repo.download_docx.return_value = _make_minimal_docx(title="Inferred Title")
-        parser_inst = PipelineDocumentParser(s3_repo)
+        parser_inst = parser.PipelineDocumentParser(s3_repo)
         document = models.GuidanceDocument(
             id=str(bson.ObjectId()),
             title=None,
@@ -123,7 +121,7 @@ class TestPipelineDocumentParserSuccess:
         s3_repo: AsyncMock,
     ) -> None:
         s3_repo.download_docx.return_value = _make_minimal_docx(title="Inferred Title")
-        parser_inst = PipelineDocumentParser(s3_repo)
+        parser_inst = parser.PipelineDocumentParser(s3_repo)
         document = models.GuidanceDocument(
             id=str(bson.ObjectId()),
             title="Explicit Title",
@@ -139,7 +137,7 @@ class TestPipelineDocumentParserFailure:
     @pytest.mark.asyncio
     async def test_s3_error_returns_failed_status(
         self,
-        parser_instance: PipelineDocumentParser,
+        parser_instance: parser.PipelineDocumentParser,
         s3_repo: AsyncMock,
     ) -> None:
         s3_repo.download_docx.side_effect = Exception("S3 connection error")
@@ -152,7 +150,7 @@ class TestPipelineDocumentParserFailure:
     @pytest.mark.asyncio
     async def test_missing_path_returns_failed_status(
         self,
-        parser_instance: PipelineDocumentParser,
+        parser_instance: parser.PipelineDocumentParser,
     ) -> None:
         document = _make_document(path="")
         document.path = None
@@ -165,7 +163,7 @@ class TestPipelineDocumentParserFailure:
     @pytest.mark.asyncio
     async def test_upload_error_returns_failed_status(
         self,
-        parser_instance: PipelineDocumentParser,
+        parser_instance: parser.PipelineDocumentParser,
         s3_repo: AsyncMock,
     ) -> None:
         s3_repo.upload_content.side_effect = Exception("Upload failed")
@@ -178,11 +176,11 @@ class TestPipelineDocumentParserFailure:
     @pytest.mark.asyncio
     async def test_failure_does_not_raise(
         self,
-        parser_instance: PipelineDocumentParser,
+        parser_instance: parser.PipelineDocumentParser,
         s3_repo: AsyncMock,
     ) -> None:
         s3_repo.download_docx.side_effect = Exception("boom")
 
         result = await parser_instance.parse(_make_document())
 
-        assert isinstance(result, ParseResult)
+        assert isinstance(result, parser.ParseResult)
