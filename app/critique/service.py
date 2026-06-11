@@ -1,8 +1,10 @@
 """Critic -> writer -> critic orchestration for guidance language review."""
 
+import dataclasses
 import logging
 
 import pydantic_ai
+import pydantic_ai.usage
 
 from app import config
 from app.critique import api_schemas, invariants, models
@@ -54,6 +56,128 @@ def _build_reports(critique: models.CritiqueOutput) -> list[api_schemas.Standard
     ]
 
 
+@dataclasses.dataclass
+class _LoopState:
+    """Mutable state threaded through the critic/writer loop."""
+
+    document: str
+    first_critique: models.CritiqueOutput | None = None
+    previous_findings: list[models.CritiqueFinding] = dataclasses.field(
+        default_factory=list
+    )
+    history: list[api_schemas.CritiqueIterationSummary] = dataclasses.field(
+        default_factory=list
+    )
+    approved: bool = False
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    def add_usage(self, usage: pydantic_ai.usage.RunUsage | None) -> None:
+        if usage:
+            self.input_tokens += usage.input_tokens or 0
+            self.output_tokens += usage.output_tokens or 0
+
+
+async def _run_critic_pass(
+    state: _LoopState,
+    iteration: int,
+    usage_limits: pydantic_ai.UsageLimits,
+) -> models.CritiqueOutput:
+    """Review the current document and record the iteration in the history."""
+    result = await critic.critic_agent.run(
+        _CRITIC_USER_PROMPT,
+        deps=models.AgentDependencies(
+            document_text=state.document,
+            previous_findings=state.previous_findings,
+        ),
+        model=llm.claude_sonnet,
+        usage_limits=usage_limits,
+    )
+    state.add_usage(result.usage)
+
+    critique = result.output
+    if state.first_critique is None:
+        state.first_critique = critique
+
+    state.history.append(
+        api_schemas.CritiqueIterationSummary(
+            iteration=iteration,
+            approved=critique.approved,
+            summary=critique.summary,
+            finding_count=len(critique.findings),
+        )
+    )
+    logger.info(
+        "[Critique] Iteration %d: approved=%s findings=%d",
+        iteration,
+        critique.approved,
+        len(critique.findings),
+    )
+    return critique
+
+
+async def _run_writer_pass(
+    state: _LoopState,
+    findings: list[models.CritiqueFinding],
+    usage_limits: pydantic_ai.UsageLimits,
+    original_document: str,
+) -> None:
+    """Apply the findings to the current document and log any invariant drift."""
+    result = await writer.writer_agent.run(
+        _WRITER_USER_PROMPT,
+        deps=models.AgentDependencies(
+            document_text=state.document,
+            findings_to_apply=findings,
+        ),
+        model=llm.claude_sonnet,
+        usage_limits=usage_limits,
+    )
+    state.add_usage(result.usage)
+    state.document = result.output.revised_document
+
+    for warning in invariants.check_invariants(original_document, state.document):
+        logger.warning("[Critique] Invariant violation: %s", warning)
+
+
+def _resolve_status(approved: bool, revise: bool) -> str:
+    if approved:
+        return "approved"
+    if revise:
+        return "max_iterations_reached"
+    return "review_completed"
+
+
+def _build_response(
+    state: _LoopState, original_document: str, revise: bool
+) -> api_schemas.CritiqueResponse:
+    was_revised = state.document != original_document
+    invariant_warnings = (
+        invariants.check_invariants(original_document, state.document)
+        if was_revised
+        else []
+    )
+
+    logger.info(
+        "[Critique] Run complete: approved=%s iterations=%d warnings=%d",
+        state.approved,
+        len(state.history),
+        len(invariant_warnings),
+    )
+
+    return api_schemas.CritiqueResponse(
+        status=_resolve_status(state.approved, revise),
+        iterations=len(state.history),
+        revised_document=state.document if was_revised else None,
+        reports=_build_reports(state.first_critique) if state.first_critique else [],
+        critique_history=state.history,
+        invariant_warnings=invariant_warnings,
+        usage=api_schemas.TokenUsage(
+            input_tokens=state.input_tokens,
+            output_tokens=state.output_tokens,
+        ),
+    )
+
+
 async def critique_document(
     document_text: str,
     max_iterations: int | None = None,
@@ -87,106 +211,18 @@ async def critique_document(
         "[Critique] Starting critique run (revise=%s, cap=%d)", revise, iteration_cap
     )
 
-    current_document = document_text
-    previous_findings: list[models.CritiqueFinding] = []
-    history: list[api_schemas.CritiqueIterationSummary] = []
-    first_critique: models.CritiqueOutput | None = None
-    approved = False
-    input_tokens = 0
-    output_tokens = 0
+    state = _LoopState(document=document_text)
 
     for iteration in range(1, iteration_cap + 1):
-        critic_deps = models.AgentDependencies(
-            document_text=current_document,
-            previous_findings=previous_findings,
-        )
-        critic_result = await critic.critic_agent.run(
-            _CRITIC_USER_PROMPT,
-            deps=critic_deps,
-            model=llm.claude_sonnet,
-            usage_limits=usage_limits,
-        )
-        if critic_result.usage:
-            input_tokens += critic_result.usage.input_tokens or 0
-            output_tokens += critic_result.usage.output_tokens or 0
-
-        critique = critic_result.output
-        if first_critique is None:
-            first_critique = critique
-
-        history.append(
-            api_schemas.CritiqueIterationSummary(
-                iteration=iteration,
-                approved=critique.approved,
-                summary=critique.summary,
-                finding_count=len(critique.findings),
-            )
-        )
-        logger.info(
-            "[Critique] Iteration %d: approved=%s findings=%d",
-            iteration,
-            critique.approved,
-            len(critique.findings),
-        )
-
+        critique = await _run_critic_pass(state, iteration, usage_limits)
         if critique.approved:
-            approved = True
+            state.approved = True
             break
 
-        previous_findings = critique.findings
-
+        state.previous_findings = critique.findings
         if iteration == iteration_cap:
             break
 
-        writer_deps = models.AgentDependencies(
-            document_text=current_document,
-            findings_to_apply=critique.findings,
-        )
-        writer_result = await writer.writer_agent.run(
-            _WRITER_USER_PROMPT,
-            deps=writer_deps,
-            model=llm.claude_sonnet,
-            usage_limits=usage_limits,
-        )
-        if writer_result.usage:
-            input_tokens += writer_result.usage.input_tokens or 0
-            output_tokens += writer_result.usage.output_tokens or 0
+        await _run_writer_pass(state, critique.findings, usage_limits, document_text)
 
-        current_document = writer_result.output.revised_document
-
-        for warning in invariants.check_invariants(document_text, current_document):
-            logger.warning("[Critique] Invariant violation: %s", warning)
-
-    was_revised = current_document != document_text
-    invariant_warnings = (
-        invariants.check_invariants(document_text, current_document)
-        if was_revised
-        else []
-    )
-
-    logger.info(
-        "[Critique] Run complete: approved=%s iterations=%d warnings=%d",
-        approved,
-        len(history),
-        len(invariant_warnings),
-    )
-
-    if approved:
-        status = "approved"
-    elif revise:
-        status = "max_iterations_reached"
-    else:
-        status = "review_completed"
-
-    return api_schemas.CritiqueResponse(
-        status=status,
-        iterations=len(history),
-        revised_document=current_document if was_revised else None,
-        reports=_build_reports(first_critique) if first_critique else [],
-        critique_history=history,
-        invariant_warnings=invariant_warnings,
-        usage=api_schemas.TokenUsage(
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-        ),
-    )
+    return _build_response(state, document_text, revise)
