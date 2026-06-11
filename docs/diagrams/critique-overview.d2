@@ -1,0 +1,114 @@
+# How the critique service works — plain-English overview.
+# Render: d2 critique-overview.d2 critique-overview.svg
+
+direction: right
+
+classes: {
+  people: {
+    style: {
+      fill: "#f3f2f1"
+      stroke: "#0b0c0c"
+      font-color: "#0b0c0c"
+    }
+  }
+  paper: {
+    style: {
+      fill: "#ffffff"
+      stroke: "#1d70b8"
+      font-color: "#0b0c0c"
+    }
+  }
+  ai: {
+    style: {
+      fill: "#1d70b8"
+      stroke: "#1d70b8"
+      font-color: "#ffffff"
+      border-radius: 8
+    }
+  }
+  store: {
+    style: {
+      fill: "#f3f2f1"
+      stroke: "#505a5f"
+      font-color: "#0b0c0c"
+    }
+  }
+}
+
+title: |md
+  # Automated style review of guidance documents
+| {near: top-center}
+
+author: Guidance author {
+  class: people
+  shape: person
+}
+
+document: "Guidance document\n(markdown)" {
+  class: paper
+  shape: document
+}
+
+service: Critique service {
+  style: {
+    fill: "#ffffff"
+    stroke: "#0b0c0c"
+    font-color: "#0b0c0c"
+  }
+
+  critic: "AI reviewer\n(the \"critic\")" {
+    class: ai
+  }
+
+  rules: "Style rule library\n\nGOV.UK style guide (79 rules)\nGDS content guidance (26 guides)\nDefra style guide (22 sections)" {
+    class: store
+    shape: cylinder
+  }
+
+  writer: "AI editor\n(the \"writer\" — optional)" {
+    class: ai
+    style.stroke-dash: 3
+  }
+
+  rules -> critic: looks up the\nrelevant rules
+
+  critic -> writer: "optional: asks the editor\nto apply the fixes" {
+    style.stroke-dash: 3
+  }
+  writer -> critic: "every revision is\nre-checked before release" {
+    style.stroke-dash: 3
+  }
+}
+
+report: "Findings report\n\nFor each issue:\nwhat is wrong, where,\nan exact quote,\nwhy it breaks the rule,\nand how to fix it" {
+  class: paper
+  shape: document
+}
+
+revised: "Improved document\n(only if revision\nwas requested)" {
+  class: paper
+  shape: document
+  style.stroke-dash: 3
+}
+
+author -> document: writes
+document -> service.critic: submitted\nfor review
+service.critic -> report: findings, each anchored\nto an exact quote
+service.writer -> revised: {
+  style.stroke-dash: 3
+}
+report -> author: author decides\nwhat to change
+
+safeguards: |md
+  ## Built-in safeguards
+
+  - Every finding must contain a **word-for-word quote** from the document.
+    The service automatically rejects and retries any finding it cannot
+    find in the text — so no made-up issues.
+  - If a revision is produced, it is checked so that **no images, links
+    or headings are ever lost or restructured** — only the wording changes.
+  - The reviewer cites the **specific rule** it is applying, so every
+    finding can be traced back to published guidance.
+| {
+  near: bottom-center
+}
