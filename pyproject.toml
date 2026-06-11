@@ -37,6 +37,11 @@ dev = [
     "taskipy==1.14.1",
     "types-aiofiles==25.1.0.20260518",
 ]
+scraper = [
+    "beautifulsoup4>=4.14.3",
+    "lxml>=6.1.1",
+    "markdownify>=1.2.2",
+]
 
 [project.scripts]
 ai-uc-rpa-guidance = "app.entrypoints.fastapi:main"
