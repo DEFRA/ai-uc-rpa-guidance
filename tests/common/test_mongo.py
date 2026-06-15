@@ -25,7 +25,9 @@ async def test_get_mongo_client_initialization(mocker):
     client = await mongo.get_mongo_client()
 
     assert client == mock_instance
-    mock_client_cls.assert_called_once_with(app_config.get_config().mongo_uri)
+    mock_client_cls.assert_called_once_with(
+        app_config.get_config().mongo_uri, uuidRepresentation="standard"
+    )
     mock_db.command.assert_awaited_once_with("ping")
 
 
@@ -51,7 +53,9 @@ async def test_get_mongo_client_with_custom_tls(mocker):
     await mongo.get_mongo_client()
 
     mock_client_cls.assert_called_once_with(
-        "mongodb://localhost:27017", tlsCAFile="/path/to/cert.pem"
+        "mongodb://localhost:27017",
+        tlsCAFile="/path/to/cert.pem",
+        uuidRepresentation="standard",
     )
 
 

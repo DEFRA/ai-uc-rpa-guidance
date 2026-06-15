@@ -22,10 +22,16 @@ async def get_mongo_client() -> pymongo.AsyncMongoClient:
                 "Creating MongoDB client with custom TLS cert %s",
                 config.mongo_truststore,
             )
-            client = pymongo.AsyncMongoClient(config.mongo_uri, tlsCAFile=cert)
+            client = pymongo.AsyncMongoClient(
+                config.mongo_uri,
+                tlsCAFile=cert,
+                uuidRepresentation="standard",
+            )
         else:
             logger.info("Creating MongoDB client")
-            client = pymongo.AsyncMongoClient(config.mongo_uri)
+            client = pymongo.AsyncMongoClient(
+                config.mongo_uri, uuidRepresentation="standard"
+            )
 
         logger.info("Testing MongoDB connection to %s", config.mongo_uri)
         await check_connection(client)

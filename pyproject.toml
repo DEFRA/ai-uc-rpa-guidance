@@ -3,7 +3,7 @@ name = "ai-uc-rpa-guidance"
 version = "0.1.0"
 description = "ai-uc-rpa-guidance"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.13"
 dependencies = [
     "asgi-logger==0.1.0",
     "aws-embedded-metrics==3.5.0",
@@ -22,6 +22,8 @@ dependencies = [
     "pygments==2.20.0",
     "pydantic-ai-slim[bedrock]==1.102.0",
     "aiofiles==25.1.0",
+    "python-docx==1.2.0",
+    "boto3==1.42.63",
 ]
 
 [dependency-groups]
@@ -36,6 +38,7 @@ dev = [
     "pydantic-evals==1.102.0",
     "ruff==0.15.14",
     "taskipy==1.14.1",
+    "testcontainers==4.14.2",
     "types-aiofiles==25.1.0.20260518",
 ]
 
@@ -87,7 +90,11 @@ module = "aws_embedded_metrics.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "ecs_logging.*"
+module = "boto3.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "botocore.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
