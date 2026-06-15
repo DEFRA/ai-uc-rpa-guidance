@@ -27,7 +27,7 @@ async def lifespan(_: fastapi.FastAPI) -> AsyncGenerator[None]:
         logger.info("MongoDB client closed")
 
 
-app = fastapi.FastAPI(lifespan=lifespan)
+app = fastapi.FastAPI(lifespan=lifespan, title="RPA Guidance Review")
 
 app.add_middleware(tracing.TraceIdMiddleware)
 
