@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.guidance.documents import api_schemas, models, parser, service
+from app.guidance.documents import api_schemas, models, pipeline_trigger, service
 
 
 class TestInitiateUpload:
@@ -18,17 +18,16 @@ class TestInitiateUpload:
         return AsyncMock()
 
     @pytest.fixture
-    def mock_parser(self) -> AsyncMock:
-        """Create a mock document parser."""
-        parser_mock: AsyncMock = AsyncMock(spec=parser.DocumentParser)
-        return parser_mock
+    def mock_trigger(self) -> AsyncMock:
+        """Create a mock pipeline trigger."""
+        return AsyncMock(spec=pipeline_trigger.DocumentPipelineTrigger)
 
     @pytest.fixture
     def guidance_service(
-        self, mock_repository: AsyncMock, mock_parser: AsyncMock
+        self, mock_repository: AsyncMock, mock_trigger: AsyncMock
     ) -> service.GuidanceService:
-        """Create a GuidanceService instance with mock repository and parser."""
-        return service.GuidanceService(mock_repository, mock_parser)
+        """Create a GuidanceService instance with mock repository and trigger."""
+        return service.GuidanceService(mock_repository, mock_trigger)
 
     @pytest.mark.asyncio
     async def test_initiate_upload_success(
@@ -110,26 +109,25 @@ class TestGuidanceService:
         return AsyncMock()
 
     @pytest.fixture
-    def mock_parser(self) -> AsyncMock:
-        """Create a mock document parser."""
-        parser_mock: AsyncMock = AsyncMock(spec=parser.DocumentParser)
-        return parser_mock
+    def mock_trigger(self) -> AsyncMock:
+        """Create a mock pipeline trigger."""
+        return AsyncMock(spec=pipeline_trigger.DocumentPipelineTrigger)
 
     @pytest.fixture
     def guidance_service(
-        self, mock_repository: AsyncMock, mock_parser: AsyncMock
+        self, mock_repository: AsyncMock, mock_trigger: AsyncMock
     ) -> service.GuidanceService:
-        """Create a GuidanceService instance with mock repository and parser."""
-        return service.GuidanceService(mock_repository, mock_parser)
+        """Create a GuidanceService instance with mock repository and trigger."""
+        return service.GuidanceService(mock_repository, mock_trigger)
 
     @pytest.mark.asyncio
     async def test_handle_callback_success(
         self,
         guidance_service: service.GuidanceService,
         mock_repository: AsyncMock,
-        mock_parser: AsyncMock,
+        mock_trigger: AsyncMock,
     ) -> None:
-        """Test successful callback handling."""
+        """Test successful callback handling: PROCESSING saved, pipeline triggered."""
         document_id = uuid.uuid4()
         document = models.GuidanceDocument(
             id=document_id,
@@ -137,10 +135,6 @@ class TestGuidanceService:
         )
 
         mock_repository.get_document.return_value = document
-        mock_parser.parse.return_value = parser.ParseResult(
-            status=models.ExtractionStatus.COMPLETE,
-            content="# Parsed content",
-        )
 
         payload = api_schemas.CdpUploaderStatusPayload(
             upload_status="completed",
@@ -157,18 +151,16 @@ class TestGuidanceService:
             },
         )
 
-        # Capture document state at each update_document call
-        captured_states: list[dict] = []
+        captured_state: dict = {}
 
         async def capture_update(
             doc: models.GuidanceDocument,
         ) -> models.GuidanceDocument:
-            captured_states.append(
+            captured_state.update(
                 {
                     "status": doc.status,
                     "filename": doc.filename,
                     "path": doc.path,
-                    "content": doc.content,
                 }
             )
             return doc
@@ -177,18 +169,14 @@ class TestGuidanceService:
 
         await guidance_service.handle_callback(document_id, payload)
 
-        assert mock_repository.update_document.call_count == 2
+        # Only the PROCESSING update happens in the request path
+        mock_repository.update_document.assert_called_once()
+        assert captured_state["status"] == models.ExtractionStatus.PROCESSING
+        assert captured_state["filename"] == "test.pdf"
+        assert captured_state["path"] == "s3://guidance-bucket/test.pdf"
 
-        # First call sets PROCESSING
-        assert captured_states[0]["status"] == models.ExtractionStatus.PROCESSING
-        assert captured_states[0]["filename"] == "test.pdf"
-        assert captured_states[0]["path"] == "s3://guidance-bucket/test.pdf"
-
-        # Second call persists parse result
-        assert captured_states[1]["status"] == models.ExtractionStatus.COMPLETE
-        assert captured_states[1]["content"] == "# Parsed content"
-
-        mock_parser.parse.assert_called_once()
+        # Pipeline is triggered once (parse happens out-of-band)
+        mock_trigger.trigger.assert_called_once_with(document)
 
     @pytest.mark.asyncio
     async def test_handle_callback_document_not_found(
