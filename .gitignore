@@ -198,6 +198,3 @@ cython_debug/
 compose/secrets.env
 
 coverage*
-
-# Claude Code
-CLAUDE.md
