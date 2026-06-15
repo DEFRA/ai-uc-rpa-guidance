@@ -157,17 +157,12 @@ def gate_breakdown(
     }
 
 
-def gate_pass(expected: dict[str, Any], produced: dict[str, Any]) -> bool:
-    """Whether a produced finding clears every gate for an expectation."""
-    return all(gate_breakdown(expected, produced).values())
-
-
 def best_near_miss(
     expected: dict[str, Any], produced: list[dict[str, Any]]
 ) -> tuple[dict[str, Any] | None, dict[str, bool]]:
     """The most diagnostic near-miss finding and its gate outcomes.
 
-    Prefers a finding of the right category, then one passing the most gates, so
+    Prefers a finding in the right section, then one passing the most gates, so
     the breakdown explains the closest the checker came to the expectation.
     """
     best: dict[str, Any] | None = None
@@ -175,7 +170,7 @@ def best_near_miss(
     best_rank: tuple[bool, int] | None = None
     for finding in produced:
         gates = gate_breakdown(expected, finding)
-        rank = (gates["category"], sum(gates.values()))
+        rank = (gates["section"], sum(gates.values()))
         if best_rank is None or rank > best_rank:
             best, best_gates, best_rank = finding, gates, rank
     return best, best_gates
@@ -235,22 +230,41 @@ class ExpectationOutcome:
 async def evaluate_expectation(
     expected: dict[str, Any], produced: list[dict[str, Any]], model: Any
 ) -> ExpectationOutcome:
-    """Match an expectation, judge its best candidate, else describe the near-miss.
+    """Match an expectation via a section-first waterfall, then judge the best candidate.
 
-    Candidates clear every mechanical gate; the one whose issue terms are most
-    similar (jaccard) is the match, and only that one is judged for correctness.
+    Stage 1 — section: narrows to findings in the expected section.
+    Stage 2 — category: narrows to findings of the expected category within that section.
+    Stage 3 — severity: narrows to findings at or above the expected severity.
+    The survivors are ranked by jaccard on issue terms; only the top-ranked is judged.
+    Each stage reports a miss with the best near-miss from that stage as context.
     """
-    candidates = [finding for finding in produced if gate_pass(expected, finding)]
-    if not candidates:
+    expected_issue = str(expected.get("issue", ""))
+
+    def by_issue_jaccard(f: dict[str, Any]) -> float:
+        return issue_jaccard(expected_issue, str(f.get("issue", "")))
+
+    in_section = [f for f in produced if gate_breakdown(expected, f)["section"]]
+    if not in_section:
         finding, gates = best_near_miss(expected, produced)
         return ExpectationOutcome(False, None, "", finding, gates, 0.0)
-    expected_issue = str(expected.get("issue", ""))
-    best = max(
-        candidates,
-        key=lambda finding: issue_jaccard(
-            expected_issue, str(finding.get("issue", ""))
-        ),
-    )
+
+    right_category = [f for f in in_section if gate_breakdown(expected, f)["category"]]
+    if not right_category:
+        finding = max(in_section, key=by_issue_jaccard)
+        return ExpectationOutcome(
+            False, None, "", finding, gate_breakdown(expected, finding), 0.0
+        )
+
+    candidates = [f for f in right_category if gate_breakdown(expected, f)["severity"]]
+    if not candidates:
+        finding = max(
+            right_category, key=lambda f: severity_rank(str(f.get("severity", "")))
+        )
+        return ExpectationOutcome(
+            False, None, "", finding, gate_breakdown(expected, finding), 0.0
+        )
+
+    best = max(candidates, key=by_issue_jaccard)
     jaccard = issue_jaccard(expected_issue, str(best.get("issue", "")))
     score, reason = await issue_correctness(
         expected_issue, str(best.get("issue", "")), model
