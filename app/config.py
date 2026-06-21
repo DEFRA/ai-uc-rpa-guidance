@@ -78,7 +78,7 @@ class AppConfig(pydantic_settings.BaseSettings):
     mongo_uri: str | None = None
     mongo_database: str = "ai-uc-rpa-guidance"
     mongo_truststore: str = "TRUSTSTORE_CDP_ROOT_CA"
-    aws_endpoint_url: str | None = None
+    floci_endpoint_url: str | None = None
     aws_region: str = pydantic.Field(
         default="eu-west-2", description="AWS region for Bedrock and other services"
     )
@@ -102,6 +102,18 @@ class AppConfig(pydantic_settings.BaseSettings):
     claude_sonnet_model_config: Annotated[
         BedrockModelConfig, pydantic_settings.NoDecode
     ] = pydantic.Field(..., validation_alias="CLAUDE_SONNET_MODEL_CONFIG")
+    cdp_uploader_base_url: str = pydantic.Field(
+        ..., description="Base URL of the CDP uploader service"
+    )
+    cdp_uploader_timeout: int = pydantic.Field(
+        default=30, description="HTTP timeout for CDP uploader requests"
+    )
+    callback_base_url: str = pydantic.Field(
+        ..., description="Base URL for this service used in callback URLs"
+    )
+    guidance_s3_bucket: str = pydantic.Field(
+        ..., description="S3 bucket for guidance documents"
+    )
 
     @pydantic.field_validator("claude_sonnet_model_config", mode="before")
     @classmethod

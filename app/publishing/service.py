@@ -44,16 +44,21 @@ async def analyse_document(
 
     return api_schemas.AnalyseResponse(
         status="completed",
+        document_title=result.output.document_title,
         findings=[
             api_schemas.FindingResponse(
+                category=f.category.value,
                 section=f.section,
                 issue=f.issue,
+                why_it_matters=f.why_it_matters,
                 severity=f.severity.value,
                 recommendation=f.recommendation,
             )
             for f in result.output.findings
         ],
+        good_points=result.output.good_points,
         summary=result.output.summary,
+        verdict=result.output.verdict.value,
         usage=(
             api_schemas.TokenUsage(
                 input_tokens=result.usage.input_tokens,

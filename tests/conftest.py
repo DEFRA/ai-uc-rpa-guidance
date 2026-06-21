@@ -15,3 +15,7 @@ os.environ.setdefault(
     "CLAUDE_SONNET_MODEL_CONFIG",
     "anthropic.claude-sonnet-4-6,arn:aws:bedrock:eu-west-2:123456789012:application-inference-profile/fake-profile-test",
 )
+os.environ.setdefault("CDP_UPLOADER_BASE_URL", "http://localhost:8087")
+os.environ.setdefault("CDP_UPLOADER_TIMEOUT", "30")
+os.environ.setdefault("CALLBACK_BASE_URL", "http://localhost:8086")
+os.environ.setdefault("GUIDANCE_S3_BUCKET", "guidance-documents")

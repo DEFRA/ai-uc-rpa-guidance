@@ -14,19 +14,19 @@ def _setup_model(
     """Create a BedrockConverseModel from configuration."""
 
     def build_settings() -> bedrock_models.BedrockModelSettings:
-        if model_config.guardrails:
-            return bedrock_models.BedrockModelSettings(
-                bedrock_inference_profile=model_config.inference_profile,
-                bedrock_guardrail_config={
-                    "guardrailIdentifier": model_config.guardrails.id,
-                    "guardrailVersion": model_config.guardrails.version,
-                    "trace": "enabled",
-                },
-            )
-
-        return bedrock_models.BedrockModelSettings(
+        settings = bedrock_models.BedrockModelSettings(
             bedrock_inference_profile=model_config.inference_profile,
+            temperature=0.0,
         )
+
+        if model_config.guardrails:
+            settings["bedrock_guardrail_config"] = {
+                "guardrailIdentifier": model_config.guardrails.id,
+                "guardrailVersion": model_config.guardrails.version,
+                "trace": "enabled",
+            }
+
+        return settings
 
     model_name = model_config.model_id
 

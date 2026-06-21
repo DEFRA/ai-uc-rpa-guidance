@@ -16,9 +16,11 @@ class TestAnalyseEndpoint:
     def test_analyse_with_valid_document(self, mocker: pytest.Mock) -> None:
         """Test analyzing a document with valid input."""
         mock_result = AsyncMock()
+        mock_result.output.document_title = "Test Document"
         mock_result.output.findings = []
+        mock_result.output.good_points = ["Clear structure"]
         mock_result.output.summary = "Document is ready"
-        mock_result.output.status = "completed"
+        mock_result.output.verdict.value = "ready"
         mock_result.usage.input_tokens = 100
         mock_result.usage.output_tokens = 50
 
@@ -35,8 +37,11 @@ class TestAnalyseEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "completed"
+        assert data["document_title"] == "Test Document"
         assert isinstance(data["findings"], list)
+        assert data["good_points"] == ["Clear structure"]
         assert "summary" in data
+        assert data["verdict"] == "ready"
 
     def test_analyse_with_empty_document(self) -> None:
         """Test that empty document text is rejected."""
@@ -59,15 +64,19 @@ class TestAnalyseEndpoint:
     def test_analyse_with_findings(self, mocker: pytest.Mock) -> None:
         """Test analyzing a document that returns findings."""
         mock_finding = AsyncMock()
+        mock_finding.category.value = "headings_and_layout"
         mock_finding.section = "Step 2"
         mock_finding.issue = "Unclear instruction"
+        mock_finding.why_it_matters = "Readers cannot follow the process"
         mock_finding.severity.value = "high"
         mock_finding.recommendation = "Clarify the steps"
 
         mock_result = AsyncMock()
+        mock_result.output.document_title = "Problematic Document"
         mock_result.output.findings = [mock_finding]
+        mock_result.output.good_points = []
         mock_result.output.summary = "Document has issues"
-        mock_result.output.status = "completed"
+        mock_result.output.verdict.value = "not_ready"
         mock_result.usage.input_tokens = 150
         mock_result.usage.output_tokens = 100
 
@@ -84,8 +93,13 @@ class TestAnalyseEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert len(data["findings"]) == 1
+        assert data["findings"][0]["category"] == "headings_and_layout"
         assert data["findings"][0]["section"] == "Step 2"
+        assert data["findings"][0]["why_it_matters"] == (
+            "Readers cannot follow the process"
+        )
         assert data["findings"][0]["severity"] == "high"
+        assert data["verdict"] == "not_ready"
 
 
 class TestSwaggerDocumentation:
