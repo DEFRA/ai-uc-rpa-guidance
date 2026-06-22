@@ -198,3 +198,10 @@ cython_debug/
 compose/secrets.env
 
 coverage*
+# local guidance documents used as critique test inputs (internal content)
+OLD *.md
+CLAUDE.MD
+# CAIT-148 POC: scraped context store and draft specs (not committed)
+
+specs/
+CLAUDE.md

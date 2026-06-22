@@ -1,0 +1,147 @@
+# Technical architecture and request flow of app/critique.
+# Render: d2 critique-architecture.d2 critique-architecture.svg
+
+direction: down
+
+classes: {
+  code: {
+    style: {
+      fill: "#ffffff"
+      stroke: "#1d70b8"
+      font-color: "#0b0c0c"
+    }
+  }
+  agent: {
+    style: {
+      fill: "#1d70b8"
+      stroke: "#1d70b8"
+      font-color: "#ffffff"
+      border-radius: 8
+    }
+  }
+  infra: {
+    style: {
+      fill: "#f3f2f1"
+      stroke: "#505a5f"
+      font-color: "#0b0c0c"
+    }
+  }
+  external: {
+    style: {
+      fill: "#0b0c0c"
+      stroke: "#0b0c0c"
+      font-color: "#ffffff"
+    }
+  }
+}
+
+title: |md
+  # app/critique — architecture and request flow
+| {near: top-center}
+
+client: API client {
+  shape: person
+}
+
+api: "FastAPI service (app/critique)" {
+  style: {
+    fill: "#ffffff"
+    stroke: "#0b0c0c"
+  }
+
+  router: "router.py\nPOST /critique/analyse" {
+    class: code
+  }
+
+  service: "service.py\norchestration loop\n\nrevise=false → 1 critic pass\nrevise=true → critic → writer → critic\nuntil approved or max_iterations" {
+    class: code
+  }
+
+  critic: "critic agent\n(agents/critic.py)" {
+    class: agent
+
+    instructions: "@instructions\ncritic.md prompt\n+ inlined rule catalogues\n+ document under review" {
+      class: code
+    }
+    validator: "@output_validator\nquote anchoring:\nevery finding.quote must appear\nverbatim in the document,\nelse ModelRetry (max 2)" {
+      class: code
+    }
+  }
+
+  writer: "writer agent\n(agents/writer.py)\nno tools — findings carry the fix" {
+    class: agent
+
+    instructions: "@instructions\nwriter.md prompt\n+ document + findings" {
+      class: code
+    }
+    validator: "@output_validator\ninvariants.py (AC5):\nimage refs, link URLs and\nheading structure preserved,\nelse ModelRetry (max 2)" {
+      class: code
+    }
+  }
+
+  router -> service: "1"
+  service -> critic: "2. agent.run(deps,\nmodel=claude_sonnet,\nUsageLimits(request_limit))"
+  service -> writer: "5. only when revise=true\nand findings remain" {
+    style.stroke-dash: 3
+  }
+  writer -> critic: "6. revision re-reviewed\n(previous_findings in deps)" {
+    style.stroke-dash: 3
+  }
+}
+
+infra: Infrastructure (app/infra) {
+  style: {
+    fill: "#ffffff"
+    stroke: "#0b0c0c"
+  }
+
+  prompts: "FileSystemPromptRepository\napp/critique/prompts/*.md" {
+    class: infra
+    shape: cylinder
+  }
+
+  context: "FileSystemContextRepository\ndata/context/ — 127 scraped\nrule documents + index.json\n(path-traversal guarded)" {
+    class: infra
+    shape: cylinder
+  }
+
+  llm: "bedrock/llm.py\nBedrockConverseModel\nclaude_sonnet (built at import)" {
+    class: infra
+  }
+}
+
+bedrock: "AWS Bedrock\nClaude Sonnet" {
+  class: external
+  shape: cloud
+}
+
+client -> api.router: "{document_text,\nrevise?, max_iterations?}"
+api.critic -> infra.context: "3. get_document_content tool\n(batched fetch of cited rules)"
+api.critic.instructions -> infra.prompts
+api.writer.instructions -> infra.prompts
+api.critic -> infra.llm
+api.writer -> infra.llm
+infra.llm -> bedrock: converse API
+
+api.service -> client: "7. CritiqueResponse:\nstatus, per-standard reports\n(findings with quote + fix),\nrevised_document?, history,\ninvariant_warnings, usage" {
+  style.stroke-width: 2
+}
+
+notes: |md
+  ## Key design decisions
+
+  - **Rule catalogues are inlined** into the critic's system prompt at
+    instruction-build time, so the agent never spends round-trips on
+    `list_*` tools — it batches `get_document_content` calls instead
+    (~4 round-trips rather than ~30).
+  - **The model is passed at run time** (`agent.run(..., model=...)`),
+    not bound to the agent — agents stay import-safe for tests.
+  - **Validators enforce, prompts ask**: quote anchoring and AC5
+    structure preservation are checked programmatically with
+    `ModelRetry`, not trusted to the prompt.
+  - Agent output models (`models.py`) are mapped to API schemas
+    (`api_schemas.py`) in the service — the LLM contract and the API
+    contract can evolve independently.
+| {
+  near: bottom-center
+}

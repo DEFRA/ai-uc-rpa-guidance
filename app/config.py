@@ -85,6 +85,20 @@ class AppConfig(pydantic_settings.BaseSettings):
     http_proxy: pydantic.HttpUrl | None = None
     enable_metrics: bool = False
     tracing_header: str = "x-cdp-request-id"
+    critique_max_iterations: int = pydantic.Field(
+        default=3,
+        ge=1,
+        description="Maximum critic/writer loop iterations for a critique run",
+    )
+    critique_request_limit: int = pydantic.Field(
+        default=50,
+        ge=1,
+        description="Maximum LLM requests per individual agent run (tool round-trips included)",
+    )
+    context_directory: str = pydantic.Field(
+        default="data/context",
+        description="Root directory served by the filesystem context repository",
+    )
     claude_sonnet_model_config: Annotated[
         BedrockModelConfig, pydantic_settings.NoDecode
     ] = pydantic.Field(..., validation_alias="CLAUDE_SONNET_MODEL_CONFIG")

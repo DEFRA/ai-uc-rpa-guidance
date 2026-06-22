@@ -1,0 +1,555 @@
+[
+  {
+    "id": "style-guides",
+    "title": "Style guides",
+    "description": "Learn about the GOV.UK style guides.",
+    "type": "rule",
+    "file": "content-style-guide/style-guides.md"
+  },
+  {
+    "id": "how-to-use",
+    "title": "How to use the style guide",
+    "description": "Understand the purpose of the style guide, what to do if you cannot find something in it and how to ask for updates to it.",
+    "type": "rule",
+    "file": "content-style-guide/how-to-use.md"
+  },
+  {
+    "id": "overview",
+    "title": "Overview",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/overview.md"
+  },
+  {
+    "id": "abbreviations-acronyms-and-initialisms",
+    "title": "abbreviations, acronyms and initialisms",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/abbreviations-acronyms-and-initialisms.md"
+  },
+  {
+    "id": "bold",
+    "title": "bold",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/bold.md"
+  },
+  {
+    "id": "bullet-points-and-steps",
+    "title": "Bullet points and steps",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/bullet-points-and-steps.md"
+  },
+  {
+    "id": "capitalisation",
+    "title": "Capitalisation",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/capitalisation.md"
+  },
+  {
+    "id": "dates",
+    "title": "Dates",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/dates.md"
+  },
+  {
+    "id": "eg-etc-and-ie",
+    "title": "eg, etc and ie",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/eg-etc-and-ie.md"
+  },
+  {
+    "id": "employment-and-support-allowance-new-style-or-income-related",
+    "title": "Employment and Support Allowance (New Style or income-related)",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/employment-and-support-allowance-new-style-or-income-related.md"
+  },
+  {
+    "id": "ethnic-minorities",
+    "title": "ethnic minorities",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/ethnic-minorities.md"
+  },
+  {
+    "id": "geography-and-regions",
+    "title": "Geography and regions",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/geography-and-regions.md"
+  },
+  {
+    "id": "gov-uk-one-login",
+    "title": "GOV.UK One Login",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/gov-uk-one-login.md"
+  },
+  {
+    "id": "great-britain",
+    "title": "Great Britain",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/great-britain.md"
+  },
+  {
+    "id": "hyphenation",
+    "title": "Hyphenation",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/hyphenation.md"
+  },
+  {
+    "id": "jobseeker-s-allowance-new-style-or-income-based",
+    "title": "Jobseeker\u2019s Allowance (New Style or income-based)",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/jobseeker-s-allowance-new-style-or-income-based.md"
+  },
+  {
+    "id": "lists",
+    "title": "Lists",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/lists.md"
+  },
+  {
+    "id": "measurements",
+    "title": "Measurements",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/measurements.md"
+  },
+  {
+    "id": "money",
+    "title": "money",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/money.md"
+  },
+  {
+    "id": "names-and-personal-titles",
+    "title": "Names and personal titles",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/names-and-personal-titles.md"
+  },
+  {
+    "id": "numbers",
+    "title": "Numbers",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/numbers.md"
+  },
+  {
+    "id": "organisations",
+    "title": "Organisations",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/organisations.md"
+  },
+  {
+    "id": "pages-and-screens",
+    "title": "Pages and screens",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/pages-and-screens.md"
+  },
+  {
+    "id": "quotes-and-speech-marks",
+    "title": "Quotes and speech marks",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/quotes-and-speech-marks.md"
+  },
+  {
+    "id": "real-time-information-and-rti",
+    "title": "Real Time Information and RTI",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/real-time-information-and-rti.md"
+  },
+  {
+    "id": "references",
+    "title": "References",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/references.md"
+  },
+  {
+    "id": "tax-returns",
+    "title": "tax returns",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/tax-returns.md"
+  },
+  {
+    "id": "times",
+    "title": "Times",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/times.md"
+  },
+  {
+    "id": "words-to-avoid",
+    "title": "Words to avoid",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/words-to-avoid.md"
+  },
+  {
+    "id": "zero-hours-contract",
+    "title": "zero-hours contract",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/a-to-z-style-guide/rules/zero-hours-contract.md"
+  },
+  {
+    "id": "overview",
+    "title": "Overview",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/technical-a-to-z/rules/overview.md"
+  },
+  {
+    "id": "words-to-avoid",
+    "title": "Words to avoid",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "rule",
+    "file": "content-style-guide/technical-a-to-z/rules/words-to-avoid.md"
+  },
+  {
+    "id": "1",
+    "title": "a-to-z-style-guide \u2014 1",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/1.md"
+  },
+  {
+    "id": "a",
+    "title": "a-to-z-style-guide \u2014 A",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/a.md"
+  },
+  {
+    "id": "b",
+    "title": "a-to-z-style-guide \u2014 B",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/b.md"
+  },
+  {
+    "id": "c",
+    "title": "a-to-z-style-guide \u2014 C",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/c.md"
+  },
+  {
+    "id": "d",
+    "title": "a-to-z-style-guide \u2014 D",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/d.md"
+  },
+  {
+    "id": "e",
+    "title": "a-to-z-style-guide \u2014 E",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/e.md"
+  },
+  {
+    "id": "f",
+    "title": "a-to-z-style-guide \u2014 F",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/f.md"
+  },
+  {
+    "id": "g",
+    "title": "a-to-z-style-guide \u2014 G",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/g.md"
+  },
+  {
+    "id": "h",
+    "title": "a-to-z-style-guide \u2014 H",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/h.md"
+  },
+  {
+    "id": "i",
+    "title": "a-to-z-style-guide \u2014 I",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/i.md"
+  },
+  {
+    "id": "j",
+    "title": "a-to-z-style-guide \u2014 J",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/j.md"
+  },
+  {
+    "id": "k",
+    "title": "a-to-z-style-guide \u2014 K",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/k.md"
+  },
+  {
+    "id": "l",
+    "title": "a-to-z-style-guide \u2014 L",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/l.md"
+  },
+  {
+    "id": "m",
+    "title": "a-to-z-style-guide \u2014 M",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/m.md"
+  },
+  {
+    "id": "n",
+    "title": "a-to-z-style-guide \u2014 N",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/n.md"
+  },
+  {
+    "id": "o",
+    "title": "a-to-z-style-guide \u2014 O",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/o.md"
+  },
+  {
+    "id": "p",
+    "title": "a-to-z-style-guide \u2014 P",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/p.md"
+  },
+  {
+    "id": "q",
+    "title": "a-to-z-style-guide \u2014 Q",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/q.md"
+  },
+  {
+    "id": "r",
+    "title": "a-to-z-style-guide \u2014 R",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/r.md"
+  },
+  {
+    "id": "s",
+    "title": "a-to-z-style-guide \u2014 S",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/s.md"
+  },
+  {
+    "id": "t",
+    "title": "a-to-z-style-guide \u2014 T",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/t.md"
+  },
+  {
+    "id": "u",
+    "title": "a-to-z-style-guide \u2014 U",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/u.md"
+  },
+  {
+    "id": "v",
+    "title": "a-to-z-style-guide \u2014 V",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/v.md"
+  },
+  {
+    "id": "w",
+    "title": "a-to-z-style-guide \u2014 W",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/w.md"
+  },
+  {
+    "id": "x",
+    "title": "a-to-z-style-guide \u2014 X",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/x.md"
+  },
+  {
+    "id": "y",
+    "title": "a-to-z-style-guide \u2014 Y",
+    "description": "See a list of the style points for all GOV.UK content, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/a-to-z-style-guide/y.md"
+  },
+  {
+    "id": "a",
+    "title": "technical-a-to-z \u2014 A",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/a.md"
+  },
+  {
+    "id": "b",
+    "title": "technical-a-to-z \u2014 B",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/b.md"
+  },
+  {
+    "id": "c",
+    "title": "technical-a-to-z \u2014 C",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/c.md"
+  },
+  {
+    "id": "d",
+    "title": "technical-a-to-z \u2014 D",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/d.md"
+  },
+  {
+    "id": "e",
+    "title": "technical-a-to-z \u2014 E",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/e.md"
+  },
+  {
+    "id": "f",
+    "title": "technical-a-to-z \u2014 F",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/f.md"
+  },
+  {
+    "id": "g",
+    "title": "technical-a-to-z \u2014 G",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/g.md"
+  },
+  {
+    "id": "h",
+    "title": "technical-a-to-z \u2014 H",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/h.md"
+  },
+  {
+    "id": "i",
+    "title": "technical-a-to-z \u2014 I",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/i.md"
+  },
+  {
+    "id": "j",
+    "title": "technical-a-to-z \u2014 J",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/j.md"
+  },
+  {
+    "id": "l",
+    "title": "technical-a-to-z \u2014 L",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/l.md"
+  },
+  {
+    "id": "m",
+    "title": "technical-a-to-z \u2014 M",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/m.md"
+  },
+  {
+    "id": "n",
+    "title": "technical-a-to-z \u2014 N",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/n.md"
+  },
+  {
+    "id": "o",
+    "title": "technical-a-to-z \u2014 O",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/o.md"
+  },
+  {
+    "id": "p",
+    "title": "technical-a-to-z \u2014 P",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/p.md"
+  },
+  {
+    "id": "r",
+    "title": "technical-a-to-z \u2014 R",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/r.md"
+  },
+  {
+    "id": "s",
+    "title": "technical-a-to-z \u2014 S",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/s.md"
+  },
+  {
+    "id": "t",
+    "title": "technical-a-to-z \u2014 T",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/t.md"
+  },
+  {
+    "id": "u",
+    "title": "technical-a-to-z \u2014 U",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/u.md"
+  },
+  {
+    "id": "v",
+    "title": "technical-a-to-z \u2014 V",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/v.md"
+  },
+  {
+    "id": "w",
+    "title": "technical-a-to-z \u2014 W",
+    "description": "See a list of the style points for technical content on GOV.UK, including how to spell and format words and phrases.",
+    "type": "definition",
+    "file": "content-style-guide/technical-a-to-z/w.md"
+  }
+]
