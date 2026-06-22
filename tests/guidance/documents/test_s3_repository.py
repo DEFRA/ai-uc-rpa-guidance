@@ -65,3 +65,35 @@ class TestUploadContent:
             Body=b"# Hello\n",
             ContentType="text/markdown",
         )
+
+
+class TestDownloadContent:
+    @pytest.mark.asyncio
+    async def test_downloads_from_correct_key(
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
+    ) -> None:
+        doc_id = uuid.UUID("507f1f77-bcf8-6cd7-9943-9011aabbccdd")
+        body_mock = MagicMock()
+        body_mock.read.return_value = b"# My Guidance\n"
+        mock_s3.get_object.return_value = {"Body": body_mock}
+
+        result = await repo.download_content(doc_id)
+
+        mock_s3.get_object.assert_called_once_with(
+            Bucket="guidance-bucket",
+            Key=f"parsed_guidance/{doc_id}/content.md",
+        )
+        assert result == "# My Guidance\n"
+
+    @pytest.mark.asyncio
+    async def test_returns_decoded_string(
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
+    ) -> None:
+        doc_id = uuid.UUID("507f1f77-bcf8-6cd7-9943-9011aabbccdd")
+        body_mock = MagicMock()
+        body_mock.read.return_value = "# Title\n\nContent with unicode: café".encode()
+        mock_s3.get_object.return_value = {"Body": body_mock}
+
+        result = await repo.download_content(doc_id)
+
+        assert result == "# Title\n\nContent with unicode: café"

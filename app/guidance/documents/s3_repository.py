@@ -20,6 +20,10 @@ class AbstractGuidanceStorageRepository(ABC):
     async def upload_content(self, document_id: uuid.UUID, markdown: str) -> None:
         """Upload rendered Markdown content to storage."""
 
+    @abstractmethod
+    async def download_content(self, document_id: uuid.UUID) -> str:
+        """Download the rendered Markdown content for a document from storage."""
+
 
 class GuidanceS3Repository(AbstractGuidanceStorageRepository):
     """Repository for guidance document artefacts stored in S3."""
@@ -73,3 +77,23 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
         )
 
         logger.info("Uploaded markdown to s3://%s/%s", self.bucket, key)
+
+    async def download_content(self, document_id: uuid.UUID) -> str:
+        """Download the rendered Markdown for parsed_guidance/{document_id}/content.md.
+
+        Args:
+            document_id: The guidance document ID.
+
+        Returns:
+            The rendered Markdown string.
+        """
+        key = f"parsed_guidance/{document_id}/content.md"
+
+        response = await asyncio.to_thread(
+            self.s3.get_object, Bucket=self.bucket, Key=key
+        )
+        body: bytes = await asyncio.to_thread(response["Body"].read)
+
+        logger.info("Downloaded content from s3://%s/%s", self.bucket, key)
+
+        return body.decode()

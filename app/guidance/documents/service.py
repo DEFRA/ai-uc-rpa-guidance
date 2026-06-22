@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 from app import config
 from app.common import http_client
-from app.guidance.documents import api_schemas, models, parser, repository
+from app.guidance.documents import api_schemas, models, pipeline_trigger, repository
 
 logger = logging.getLogger(__name__)
 
@@ -19,16 +19,16 @@ class GuidanceService:
     def __init__(
         self,
         repo: repository.GuidanceRepository,
-        doc_parser: parser.DocumentParser,
+        trigger: pipeline_trigger.DocumentPipelineTrigger,
     ) -> None:
-        """Initialize the service with a repository and parser.
+        """Initialize the service with a repository and pipeline trigger.
 
         Args:
             repo: The guidance repository for persistence.
-            doc_parser: The document parser for triggering extraction.
+            trigger: Trigger that dispatches document processing asynchronously.
         """
         self.repository = repo
-        self.parser = doc_parser
+        self.trigger = trigger
 
     async def initiate_upload(self, request: api_schemas.DocumentUploadRequest) -> str:
         """Initiate a document upload session.
@@ -87,6 +87,8 @@ class GuidanceService:
     ) -> None:
         """Process callback from CDP uploader service.
 
+        Marks the document as PROCESSING and dispatches parsing to the background.
+
         Args:
             document_id: The document ID to update.
             payload: The callback payload from the uploader.
@@ -105,14 +107,7 @@ class GuidanceService:
                 document.path = f"s3://{form_value.s3_bucket}/{form_value.s3_key}"
 
                 await self.repository.update_document(document)
-
-                result = await self.parser.parse(document)
-                document.status = result.status
-                document.content = result.content
-                if result.title is not None:
-                    document.title = result.title
-                document.error_message = result.error_message
-                await self.repository.update_document(document)
+                await self.trigger.trigger(document)
 
                 logger.info(
                     "Callback processed and parse triggered for document %s",
