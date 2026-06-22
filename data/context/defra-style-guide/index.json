@@ -1,0 +1,156 @@
+[
+  {
+    "id": "overview",
+    "title": "Overview",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/overview.md"
+  },
+  {
+    "id": "a",
+    "title": "Defra style guide \u2014 A",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/a.md"
+  },
+  {
+    "id": "b",
+    "title": "Defra style guide \u2014 B",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/b.md"
+  },
+  {
+    "id": "c",
+    "title": "Defra style guide \u2014 C",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/c.md"
+  },
+  {
+    "id": "d",
+    "title": "Defra style guide \u2014 D",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/d.md"
+  },
+  {
+    "id": "e",
+    "title": "Defra style guide \u2014 E",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/e.md"
+  },
+  {
+    "id": "f",
+    "title": "Defra style guide \u2014 F",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/f.md"
+  },
+  {
+    "id": "g",
+    "title": "Defra style guide \u2014 G",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/g.md"
+  },
+  {
+    "id": "h",
+    "title": "Defra style guide \u2014 H",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/h.md"
+  },
+  {
+    "id": "i",
+    "title": "Defra style guide \u2014 I",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/i.md"
+  },
+  {
+    "id": "k",
+    "title": "Defra style guide \u2014 K",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/k.md"
+  },
+  {
+    "id": "l",
+    "title": "Defra style guide \u2014 L",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/l.md"
+  },
+  {
+    "id": "m",
+    "title": "Defra style guide \u2014 M",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/m.md"
+  },
+  {
+    "id": "n",
+    "title": "Defra style guide \u2014 N",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/n.md"
+  },
+  {
+    "id": "o",
+    "title": "Defra style guide \u2014 O",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/o.md"
+  },
+  {
+    "id": "p",
+    "title": "Defra style guide \u2014 P",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/p.md"
+  },
+  {
+    "id": "r",
+    "title": "Defra style guide \u2014 R",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/r.md"
+  },
+  {
+    "id": "s",
+    "title": "Defra style guide \u2014 S",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/s.md"
+  },
+  {
+    "id": "t",
+    "title": "Defra style guide \u2014 T",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/t.md"
+  },
+  {
+    "id": "u",
+    "title": "Defra style guide \u2014 U",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/u.md"
+  },
+  {
+    "id": "w",
+    "title": "Defra style guide \u2014 W",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/w.md"
+  },
+  {
+    "id": "x",
+    "title": "Defra style guide \u2014 X",
+    "description": "Defra style guide: terminology and usage conventions for Defra content, complementing the GDS style guide.",
+    "type": "rule",
+    "file": "defra-style-guide/defra-style-guide/x.md"
+  }
+]

@@ -1,0 +1,184 @@
+[
+  {
+    "id": "text-formatting",
+    "title": "Text formatting",
+    "description": "Learn how to format text in GOV.UK content with Govspeak Markdown code.",
+    "type": "rule",
+    "file": "content-guidance/text-formatting.md"
+  },
+  {
+    "id": "acronyms",
+    "title": "Acronyms",
+    "description": "Add abbreviations and initialisms with Govspeak Markdown code so they include accessible alt text.",
+    "type": "rule",
+    "file": "content-guidance/acronyms.md"
+  },
+  {
+    "id": "addresses",
+    "title": "Addresses",
+    "description": "Add addresses to GOV.UK content with Govspeak Markdown code.",
+    "type": "rule",
+    "file": "content-guidance/addresses.md"
+  },
+  {
+    "id": "blockquotes",
+    "title": "Blockquotes",
+    "description": "Add long quotes to GOV.UK content with Govspeak Markdown code.",
+    "type": "rule",
+    "file": "content-guidance/blockquotes.md"
+  },
+  {
+    "id": "bullets",
+    "title": "Bullet points",
+    "description": "Add bullet points to GOV.UK content with Govspeak Markdown code.",
+    "type": "rule",
+    "file": "content-guidance/bullets.md"
+  },
+  {
+    "id": "calls-to-action",
+    "title": "Calls to action",
+    "description": "Add a call to action to GOV.UK content with Govspeak Markdown code.",
+    "type": "rule",
+    "file": "content-guidance/calls-to-action.md"
+  },
+  {
+    "id": "charts",
+    "title": "Charts",
+    "description": "Add bar charts to GOV.UK content with Govspeak Markdown code.",
+    "type": "rule",
+    "file": "content-guidance/charts.md"
+  },
+  {
+    "id": "footnotes",
+    "title": "Footnotes",
+    "description": "Add footnotes to GOV.UK content with Govspeak Markdown code.",
+    "type": "rule",
+    "file": "content-guidance/footnotes.md"
+  },
+  {
+    "id": "headings",
+    "title": "Headings",
+    "description": "Add headings to GOV.UK content with Govspeak Markdown code.",
+    "type": "rule",
+    "file": "content-guidance/headings.md"
+  },
+  {
+    "id": "legislative-list",
+    "title": "Legislative list",
+    "description": "Add complicated bullet point lists to GOV.UK content with Govspeak Markdown code, so you can specify the numbering and include multiple indent levels.",
+    "type": "rule",
+    "file": "content-guidance/legislative-list.md"
+  },
+  {
+    "id": "links",
+    "title": "Links",
+    "description": "Add links to GOV.UK content with Govspeak Markdown code, including email links and anchor links.",
+    "type": "rule",
+    "file": "content-guidance/links.md"
+  },
+  {
+    "id": "numbered-lists",
+    "title": "Numbered lists",
+    "description": "Add numbered lists to GOV.UK content with Govspeak Markdown code.",
+    "type": "rule",
+    "file": "content-guidance/numbered-lists.md"
+  },
+  {
+    "id": "subscript-superscript",
+    "title": "Subscript and superscript",
+    "description": "If you\u2019re writing out chemical names or measurements in GOV.UK content, add subscript and superscript with Govspeak Markdown code.",
+    "type": "rule",
+    "file": "content-guidance/subscript-superscript.md"
+  },
+  {
+    "id": "tables",
+    "title": "Tables",
+    "description": "Add tables to GOV.UK content with Govspeak Markdown code.",
+    "type": "rule",
+    "file": "content-guidance/tables.md"
+  },
+  {
+    "id": "tone-of-voice",
+    "title": "Tone of voice",
+    "description": "Learn how to write effective and clear content for GOV.UK.",
+    "type": "rule",
+    "file": "content-guidance/tone-of-voice.md"
+  },
+  {
+    "id": "add-links",
+    "title": "Write effective links",
+    "description": "Learn how to use links in GOV.UK content, including writing clear link text and using anchor links.",
+    "type": "rule",
+    "file": "content-guidance/add-links.md"
+  },
+  {
+    "id": "change-notes",
+    "title": "Write change notes",
+    "description": "Learn when to create change notes for GOV.UK content updates and how to write effective change notes.",
+    "type": "rule",
+    "file": "content-guidance/change-notes.md"
+  },
+  {
+    "id": "clear-language",
+    "title": "Use clear language",
+    "description": "Learn about the importance of plain English on GOV.UK, what offensive language to avoid using in content, and recommended paragraph and sentence length.",
+    "type": "rule",
+    "file": "content-guidance/clear-language.md"
+  },
+  {
+    "id": "clear-structure",
+    "title": "Create a clear structure for your content",
+    "description": "Learn how to structure GOV.UK content clearly, including frontloading and using headings, bullet points and lists.",
+    "type": "rule",
+    "file": "content-guidance/clear-structure.md"
+  },
+  {
+    "id": "clear-titles",
+    "title": "Write clear titles",
+    "description": "Learn how to create a title for your GOV.UK content, including what language to use and the recommended length.",
+    "type": "rule",
+    "file": "content-guidance/clear-titles.md"
+  },
+  {
+    "id": "meet-user-needs",
+    "title": "Write content to meet user needs",
+    "description": "Learn how to write GOV.UK content that helps users complete tasks.",
+    "type": "rule",
+    "file": "content-guidance/meet-user-needs.md"
+  },
+  {
+    "id": "right-tone",
+    "title": "Use the right tone",
+    "description": "Learn about the tone of voice for GOV.UK content, including what words to avoid and how to address users.",
+    "type": "rule",
+    "file": "content-guidance/right-tone.md"
+  },
+  {
+    "id": "summaries",
+    "title": "Write clear summaries",
+    "description": "Learn how to create a summary for your GOV.UK content, including what language to use and the recommended length.",
+    "type": "rule",
+    "file": "content-guidance/summaries.md"
+  },
+  {
+    "id": "writing-to-gov-uk-standards",
+    "title": "Writing to GOV.UK standards",
+    "description": "Learn how to design content for GOV.UK.",
+    "type": "rule",
+    "file": "content-guidance/writing-to-gov-uk-standards.md"
+  },
+  {
+    "id": "understand-content-design",
+    "title": "Understand content design",
+    "description": "Learn the basics of designing content for GOV.UK.",
+    "type": "rule",
+    "file": "content-guidance/understand-content-design.md"
+  },
+  {
+    "id": "understand-accessibility",
+    "title": "Understand accessibility",
+    "description": "Find out how to make your content accessible and learn about the accessibility regulations all GOV.UK content needs to follow.",
+    "type": "rule",
+    "file": "content-guidance/understand-accessibility.md"
+  }
+]
