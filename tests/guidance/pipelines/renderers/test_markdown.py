@@ -8,7 +8,7 @@ from app.guidance.pipeline.models import (
     SectionNode,
     TableNode,
 )
-from app.guidance.pipeline.renderers.markdown import to_markdown
+from app.guidance.pipeline.renderers.markdown import section_to_markdown, to_markdown
 
 
 class TestMarkdownRenderer:
@@ -345,3 +345,49 @@ class TestMarkdownListRendering:
         md = to_markdown(tree)
         assert "1. One" in md
         assert "2. Two" in md
+
+
+class TestSectionToMarkdown:
+    def _make_section_with_child(self) -> SectionNode:
+        return SectionNode(
+            heading="Overview",
+            level=1,
+            number="1",
+            content=[ParagraphNode(spans=[InlineSpan(text="Direct content.")])],
+            children=[
+                SectionNode(
+                    heading="Sub Topic",
+                    level=2,
+                    number="1.1",
+                    content=[ParagraphNode(spans=[InlineSpan(text="Child content.")])],
+                )
+            ],
+        )
+
+    def test_heading_rendered(self) -> None:
+        md = section_to_markdown(self._make_section_with_child())
+        assert "## 1 Overview" in md
+
+    def test_direct_content_rendered(self) -> None:
+        md = section_to_markdown(self._make_section_with_child())
+        assert "Direct content." in md
+
+    def test_children_not_included(self) -> None:
+        md = section_to_markdown(self._make_section_with_child())
+        assert "Sub Topic" not in md
+        assert "Child content." not in md
+
+    def test_empty_content_section(self) -> None:
+        section = SectionNode(heading="Empty", level=1, number="1", content=[])
+        md = section_to_markdown(section)
+        assert "## 1 Empty" in md
+
+    def test_heading_level_matches_section_level(self) -> None:
+        deep = SectionNode(
+            heading="Deep",
+            level=3,
+            number="1.1.1",
+            content=[],
+        )
+        md = section_to_markdown(deep)
+        assert "#### 1.1.1 Deep" in md

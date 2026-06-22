@@ -1,6 +1,8 @@
 """Document parser protocol and pipeline implementation."""
 
+import dataclasses
 import io
+import json
 import logging
 from dataclasses import dataclass
 from typing import Protocol
@@ -8,6 +10,7 @@ from typing import Protocol
 import docx
 
 from app.guidance.documents import models, s3_repository
+from app.guidance.pipeline import models as pipeline_models
 from app.guidance.pipeline import service as pipeline_service
 from app.guidance.pipeline.renderers import markdown as markdown_renderer
 
@@ -30,6 +33,26 @@ class DocumentParser(Protocol):
     async def parse(self, document: models.GuidanceDocument) -> ParseResult:
         """Parse a guidance document and return the result."""
         ...
+
+
+def _build_manifest(
+    document_id: str, tree: pipeline_models.DocumentTree
+) -> pipeline_models.DocumentManifest:
+    nodes = [
+        pipeline_models.ManifestSectionNode(
+            number=s.number,
+            heading=s.heading,
+            level=s.level,
+            parent=s.number.rsplit(".", 1)[0] if "." in s.number else None,
+            children=[c.number for c in s.children],
+        )
+        for s in tree.sections
+    ]
+    return pipeline_models.DocumentManifest(
+        document_id=document_id,
+        title=tree.title,
+        sections=nodes,
+    )
 
 
 class PipelineDocumentParser:
@@ -75,7 +98,22 @@ class PipelineDocumentParser:
 
                 await self.s3_repo.upload_content(document.id, rendered_markdown)
 
-                logger.info("Document %s parsed and stored successfully", document.id)
+                manifest = _build_manifest(str(document.id), tree)
+                await self.s3_repo.upload_manifest(
+                    document.id, json.dumps(dataclasses.asdict(manifest))
+                )
+
+                for section in tree.sections:
+                    section_md = markdown_renderer.section_to_markdown(section)
+                    await self.s3_repo.upload_section(
+                        document.id, section.number, section_md
+                    )
+
+                logger.info(
+                    "Document %s parsed and stored successfully (%d sections)",
+                    document.id,
+                    len(tree.sections),
+                )
 
                 return ParseResult(
                     status=models.ExtractionStatus.COMPLETE,

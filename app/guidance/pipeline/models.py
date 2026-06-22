@@ -192,3 +192,29 @@ class DocumentTree(Serializable):
         tree = cls(title=data["title"])
         tree.children = [SectionNode.from_dict(c) for c in data.get("children", [])]
         return tree
+
+
+@dataclass(frozen=True)
+class ManifestSectionNode:
+    """A single node in the document manifest graph."""
+
+    number: str
+    heading: str
+    level: int
+    parent: str | None
+    children: list[str]
+    links: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class DocumentManifest:
+    """Flat adjacency-list graph of all sections in a parsed guidance document.
+
+    Sections are in document order; hierarchy is encoded via parent/children
+    references (section numbers as strings). O(n) to iterate, O(1) to look up
+    by number once indexed in memory.
+    """
+
+    document_id: str
+    title: str
+    sections: list[ManifestSectionNode]

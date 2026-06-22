@@ -24,6 +24,26 @@ class AbstractGuidanceStorageRepository(ABC):
     async def download_content(self, document_id: uuid.UUID) -> str:
         """Download the rendered Markdown content for a document from storage."""
 
+    @abstractmethod
+    async def upload_manifest(self, document_id: uuid.UUID, json_str: str) -> None:
+        """Upload the document manifest JSON to storage."""
+
+    @abstractmethod
+    async def download_manifest(self, document_id: uuid.UUID) -> str:
+        """Download the document manifest JSON from storage."""
+
+    @abstractmethod
+    async def upload_section(
+        self, document_id: uuid.UUID, section_number: str, markdown: str
+    ) -> None:
+        """Upload a single section's Markdown content to storage."""
+
+    @abstractmethod
+    async def download_section(
+        self, document_id: uuid.UUID, section_number: str
+    ) -> str:
+        """Download a single section's Markdown content from storage."""
+
 
 class GuidanceS3Repository(AbstractGuidanceStorageRepository):
     """Repository for guidance document artefacts stored in S3."""
@@ -95,5 +115,93 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
         body: bytes = await asyncio.to_thread(response["Body"].read)
 
         logger.info("Downloaded content from s3://%s/%s", self.bucket, key)
+
+        return body.decode()
+
+    async def upload_manifest(self, document_id: uuid.UUID, json_str: str) -> None:
+        """Upload the manifest JSON to parsed_guidance/{document_id}/manifest.json.
+
+        Args:
+            document_id: The guidance document ID.
+            json_str: The manifest serialised as a JSON string.
+        """
+        key = f"parsed_guidance/{document_id}/manifest.json"
+
+        await asyncio.to_thread(
+            self.s3.put_object,
+            Bucket=self.bucket,
+            Key=key,
+            Body=json_str.encode(),
+            ContentType="application/json",
+        )
+
+        logger.info("Uploaded manifest to s3://%s/%s", self.bucket, key)
+
+    async def download_manifest(self, document_id: uuid.UUID) -> str:
+        """Download the manifest JSON from parsed_guidance/{document_id}/manifest.json.
+
+        Args:
+            document_id: The guidance document ID.
+
+        Returns:
+            The manifest as a JSON string.
+        """
+        key = f"parsed_guidance/{document_id}/manifest.json"
+
+        response = await asyncio.to_thread(
+            self.s3.get_object, Bucket=self.bucket, Key=key
+        )
+        body: bytes = await asyncio.to_thread(response["Body"].read)
+
+        logger.info("Downloaded manifest from s3://%s/%s", self.bucket, key)
+
+        return body.decode()
+
+    async def upload_section(
+        self, document_id: uuid.UUID, section_number: str, markdown: str
+    ) -> None:
+        """Upload a section's Markdown to parsed_guidance/{document_id}/sections/{number}.md.
+
+        Args:
+            document_id: The guidance document ID.
+            section_number: The hierarchical section number (e.g. "1.2.3").
+            markdown: The rendered Markdown for this section's direct content.
+        """
+        key = f"parsed_guidance/{document_id}/sections/{section_number}.md"
+
+        await asyncio.to_thread(
+            self.s3.put_object,
+            Bucket=self.bucket,
+            Key=key,
+            Body=markdown.encode(),
+            ContentType="text/markdown",
+        )
+
+        logger.info(
+            "Uploaded section %s to s3://%s/%s", section_number, self.bucket, key
+        )
+
+    async def download_section(
+        self, document_id: uuid.UUID, section_number: str
+    ) -> str:
+        """Download a section's Markdown from parsed_guidance/{document_id}/sections/{number}.md.
+
+        Args:
+            document_id: The guidance document ID.
+            section_number: The hierarchical section number (e.g. "1.2.3").
+
+        Returns:
+            The rendered Markdown for this section's direct content.
+        """
+        key = f"parsed_guidance/{document_id}/sections/{section_number}.md"
+
+        response = await asyncio.to_thread(
+            self.s3.get_object, Bucket=self.bucket, Key=key
+        )
+        body: bytes = await asyncio.to_thread(response["Body"].read)
+
+        logger.info(
+            "Downloaded section %s from s3://%s/%s", section_number, self.bucket, key
+        )
 
         return body.decode()
