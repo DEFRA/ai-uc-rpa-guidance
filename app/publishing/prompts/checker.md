@@ -261,7 +261,16 @@ Only flag raw URLs if they appear in the guidance content itself (not in metadat
 
 
 
+For every link found in the document, generate an additional finding at severity "info" reminding the writer to check that the link is clickable. One finding per link.
 
+
+
+For every Links-category finding (including the clickability info findings above), the "issue" field must include the link using one of these two formats:
+
+- If the link has human-readable anchor text: [anchor text](https://example.com)
+- If the link has no anchor text (the URL is used as the link text, or the link is a bare URL): (https://example.com)
+
+Do NOT write [https://example.com] or [https://example.com](https://example.com). Do NOT wrap the link in backticks or any other delimiters.
 
 
 
