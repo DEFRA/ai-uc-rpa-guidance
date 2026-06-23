@@ -164,6 +164,7 @@ async def get_document_manifest(
     Raises:
         HTTPException: 404 if the manifest has not been produced yet.
     """
+    logger.info("Fetching manifest for document %s", document_id)
     try:
         raw = await s3_repo.download_manifest(document_id)
         return api_schemas.DocumentManifestResponse.model_validate_json(raw)

@@ -73,7 +73,7 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
         )
         body: bytes = await asyncio.to_thread(response["Body"].read)
 
-        logger.info(
+        logger.debug(
             "Downloaded docx from s3://%s/%s (%d bytes)", self.bucket, key, len(body)
         )
 
@@ -96,7 +96,7 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
             ContentType="text/markdown",
         )
 
-        logger.info("Uploaded markdown to s3://%s/%s", self.bucket, key)
+        logger.debug("Uploaded markdown to s3://%s/%s", self.bucket, key)
 
     async def download_content(self, document_id: uuid.UUID) -> str:
         """Download the rendered Markdown for parsed_guidance/{document_id}/content.md.
@@ -114,7 +114,7 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
         )
         body: bytes = await asyncio.to_thread(response["Body"].read)
 
-        logger.info("Downloaded content from s3://%s/%s", self.bucket, key)
+        logger.debug("Downloaded content from s3://%s/%s", self.bucket, key)
 
         return body.decode()
 
@@ -135,7 +135,7 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
             ContentType="application/json",
         )
 
-        logger.info("Uploaded manifest to s3://%s/%s", self.bucket, key)
+        logger.debug("Uploaded manifest to s3://%s/%s", self.bucket, key)
 
     async def download_manifest(self, document_id: uuid.UUID) -> str:
         """Download the manifest JSON from parsed_guidance/{document_id}/manifest.json.
@@ -153,7 +153,7 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
         )
         body: bytes = await asyncio.to_thread(response["Body"].read)
 
-        logger.info("Downloaded manifest from s3://%s/%s", self.bucket, key)
+        logger.debug("Downloaded manifest from s3://%s/%s", self.bucket, key)
 
         return body.decode()
 
@@ -177,7 +177,7 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
             ContentType="text/markdown",
         )
 
-        logger.info(
+        logger.debug(
             "Uploaded section %s to s3://%s/%s", section_number, self.bucket, key
         )
 
@@ -200,7 +200,7 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
         )
         body: bytes = await asyncio.to_thread(response["Body"].read)
 
-        logger.info(
+        logger.debug(
             "Downloaded section %s from s3://%s/%s", section_number, self.bucket, key
         )
 

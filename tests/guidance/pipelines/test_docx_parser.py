@@ -255,18 +255,43 @@ class TestTitleInference:
         tree = service.parse_doc(doc)
         assert tree.title == "Style Title"
 
-    def test_infers_from_first_heading1(self):
+    def test_infers_from_first_page_plain_text(self):
         doc = Document()
         doc.core_properties.title = ""
-        doc.add_heading("First Heading", level=1)
-        doc.add_heading("Second Heading", level=1)
+        doc.add_paragraph("Plain Title Text")
+        doc.add_paragraph("Plain Subtitle Text")
         tree = service.parse_doc(doc)
-        assert tree.title == "First Heading"
+        assert tree.title == "Plain Title Text — Plain Subtitle Text"
 
-    def test_empty_title_when_no_headings(self):
+    def test_infers_from_first_page_mixed_styles(self):
         doc = Document()
         doc.core_properties.title = ""
-        doc.add_paragraph("Just a paragraph.")
+        doc.add_heading("Main Title", level=1)
+        doc.add_paragraph("Plain subtitle")
+        tree = service.parse_doc(doc)
+        assert tree.title == "Main Title — Plain subtitle"
+
+    def test_content_after_page_break_excluded(self):
+        from docx.oxml.ns import qn
+        from lxml import etree
+
+        doc = Document()
+        doc.core_properties.title = ""
+        doc.add_paragraph("Cover Title")
+
+        # Insert a manual page break
+        break_para = doc.add_paragraph()
+        run = break_para.add_run()
+        br = etree.SubElement(run._r, qn("w:br"))
+        br.set(qn("w:type"), "page")
+
+        doc.add_paragraph("Body content not part of title")
+        tree = service.parse_doc(doc)
+        assert tree.title == "Cover Title"
+
+    def test_empty_title_when_no_content(self):
+        doc = Document()
+        doc.core_properties.title = ""
         tree = service.parse_doc(doc)
         assert tree.title == ""
 
@@ -274,6 +299,22 @@ class TestTitleInference:
         doc = Document()
         doc.core_properties.title = "  Trimmed Title  "
         assert service.DocxParser._extract_title(doc) == "Trimmed Title"
+
+    def test_template_title_falls_back_to_heading1(self):
+        doc = Document()
+        doc.core_properties.title = "Design Team Guidance Template"
+        doc.add_heading("Real Document Title", level=1)
+        tree = service.parse_doc(doc)
+        assert tree.title == "Real Document Title"
+
+    def test_template_title_falls_back_to_title_style(self):
+        doc = Document()
+        doc.core_properties.title = "Design Team Guidance Template"
+        para = doc.add_paragraph("Style Title")
+        para.style = doc.styles["Title"]
+        doc.add_heading("Heading One", level=1)
+        tree = service.parse_doc(doc)
+        assert tree.title == "Style Title"
 
 
 class TestParserHyperlinks:
