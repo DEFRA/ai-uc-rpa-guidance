@@ -102,3 +102,30 @@ class DocumentListResponse(pydantic.BaseModel):
     total: int = pydantic.Field(..., description="Total number of documents")
     page: int = pydantic.Field(..., description="Current page (1-based)")
     page_size: int = pydantic.Field(..., description="Number of items per page")
+
+
+class ManifestSectionNodeResponse(pydantic.BaseModel):
+    """A single node in the document section graph returned by the API."""
+
+    model_config = pydantic.ConfigDict(
+        populate_by_name=True, alias_generator=pydantic.alias_generators.to_camel
+    )
+
+    number: str
+    heading: str
+    level: int
+    parent: str | None = None
+    children: list[str] = pydantic.Field(default_factory=list)
+    links: list[str] = pydantic.Field(default_factory=list)
+
+
+class DocumentManifestResponse(pydantic.BaseModel):
+    """Flat adjacency-list manifest of all sections in a parsed guidance document."""
+
+    model_config = pydantic.ConfigDict(
+        populate_by_name=True, alias_generator=pydantic.alias_generators.to_camel
+    )
+
+    document_id: str
+    title: str
+    sections: list[ManifestSectionNodeResponse]

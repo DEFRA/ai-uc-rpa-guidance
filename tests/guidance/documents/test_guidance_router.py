@@ -2,18 +2,34 @@
 
 from unittest.mock import AsyncMock
 
+import botocore.exceptions
 import fastapi.testclient
 import pytest
 
 import app.entrypoints.fastapi
-from app.guidance.documents import api_schemas
+from app.guidance.documents import api_schemas, s3_repository
 from app.guidance.documents import dependencies as guidance_dependencies
+
+
+def _no_such_key_error() -> botocore.exceptions.ClientError:
+    return botocore.exceptions.ClientError(
+        error_response={
+            "Error": {"Code": "NoSuchKey", "Message": "The key does not exist"}
+        },
+        operation_name="GetObject",
+    )
 
 
 @pytest.fixture
 def mock_guidance_service() -> AsyncMock:
     """Create a mock guidance service."""
     return AsyncMock()
+
+
+@pytest.fixture
+def mock_s3_repo() -> AsyncMock:
+    """Create a mock S3 repository."""
+    return AsyncMock(spec=s3_repository.AbstractGuidanceStorageRepository)
 
 
 @pytest.fixture
@@ -24,6 +40,18 @@ def client_with_mocks(
     test_app = app.entrypoints.fastapi.app
     test_app.dependency_overrides[guidance_dependencies.get_guidance_service] = lambda: (
         mock_guidance_service
+    )
+    return fastapi.testclient.TestClient(test_app)
+
+
+@pytest.fixture
+def client_with_s3(
+    mock_s3_repo: AsyncMock,
+) -> fastapi.testclient.TestClient:
+    """Create a test client with a mocked S3 repository."""
+    test_app = app.entrypoints.fastapi.app
+    test_app.dependency_overrides[guidance_dependencies.get_s3_repository] = lambda: (
+        mock_s3_repo
     )
     return fastapi.testclient.TestClient(test_app)
 
@@ -240,6 +268,122 @@ class TestListDocumentsEndpoint:
         response = client_with_mocks.get("/guidance/documents")
 
         assert response.status_code == 200
+
+
+class TestManifestEndpoint:
+    """Test GET /guidance/documents/{document_id}/manifest."""
+
+    _DOCUMENT_ID = "12345678-1234-5678-1234-567812345678"
+    _MANIFEST_JSON = (
+        '{"document_id": "12345678-1234-5678-1234-567812345678", "title": "Test", "sections": ['
+        '{"number": "1", "heading": "Intro", "level": 1, "parent": null, "children": [], "links": []}'
+        "]}"
+    )
+
+    def test_returns_manifest(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+    ) -> None:
+        mock_s3_repo.download_manifest.return_value = self._MANIFEST_JSON
+
+        response = client_with_s3.get(
+            f"/guidance/documents/{self._DOCUMENT_ID}/manifest"
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["documentId"] == self._DOCUMENT_ID
+        assert len(data["sections"]) == 1
+        assert data["sections"][0]["number"] == "1"
+
+    def test_returns_404_when_manifest_missing(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+    ) -> None:
+        mock_s3_repo.download_manifest.side_effect = _no_such_key_error()
+
+        response = client_with_s3.get(
+            f"/guidance/documents/{self._DOCUMENT_ID}/manifest"
+        )
+
+        assert response.status_code == 404
+
+    def test_returns_422_for_invalid_document_id(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+    ) -> None:
+        response = client_with_s3.get("/guidance/documents/not-a-uuid/manifest")
+
+        assert response.status_code == 422
+
+
+class TestSectionEndpoint:
+    """Test GET /guidance/documents/{document_id}/sections/{section_number}."""
+
+    _DOCUMENT_ID = "12345678-1234-5678-1234-567812345678"
+
+    def test_returns_section_markdown(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+    ) -> None:
+        mock_s3_repo.download_section.return_value = "## 1 Intro\n\nContent here."
+
+        response = client_with_s3.get(
+            f"/guidance/documents/{self._DOCUMENT_ID}/sections/1"
+        )
+
+        assert response.status_code == 200
+        assert "text/markdown" in response.headers["content-type"]
+        assert "## 1 Intro" in response.text
+
+    def test_returns_section_with_dotted_number(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+    ) -> None:
+        mock_s3_repo.download_section.return_value = "### 1.2.3 Deep\n\nContent."
+
+        response = client_with_s3.get(
+            f"/guidance/documents/{self._DOCUMENT_ID}/sections/1.2.3"
+        )
+
+        assert response.status_code == 200
+
+    def test_returns_404_when_section_missing(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+    ) -> None:
+        mock_s3_repo.download_section.side_effect = _no_such_key_error()
+
+        response = client_with_s3.get(
+            f"/guidance/documents/{self._DOCUMENT_ID}/sections/99"
+        )
+
+        assert response.status_code == 404
+
+    def test_returns_422_for_invalid_section_number(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+    ) -> None:
+        response = client_with_s3.get(
+            f"/guidance/documents/{self._DOCUMENT_ID}/sections/not-a-number"
+        )
+
+        assert response.status_code == 422
+
+    def test_returns_422_for_section_with_slash(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+    ) -> None:
+        response = client_with_s3.get(
+            f"/guidance/documents/{self._DOCUMENT_ID}/sections/1/2"
+        )
+
+        assert response.status_code in {404, 422}
 
 
 class TestSwaggerDocumentation:

@@ -87,6 +87,37 @@ class TestPipelineDocumentParserSuccess:
         s3_repo.upload_content.assert_called_once_with(document.id, result.content)
 
     @pytest.mark.asyncio
+    async def test_manifest_uploaded_to_s3(
+        self,
+        parser_instance: parser.PipelineDocumentParser,
+        s3_repo: AsyncMock,
+    ) -> None:
+        document = _make_document()
+        await parser_instance.parse(document)
+
+        s3_repo.upload_manifest.assert_called_once()
+        call_args = s3_repo.upload_manifest.call_args
+        assert call_args.args[0] == document.id
+        import json
+
+        manifest_data = json.loads(call_args.args[1])
+        assert manifest_data["document_id"] == str(document.id)
+        assert "sections" in manifest_data
+
+    @pytest.mark.asyncio
+    async def test_sections_uploaded_to_s3(
+        self,
+        parser_instance: parser.PipelineDocumentParser,
+        s3_repo: AsyncMock,
+    ) -> None:
+        document = _make_document()
+        await parser_instance.parse(document)
+
+        assert s3_repo.upload_section.call_count >= 1
+        first_call = s3_repo.upload_section.call_args_list[0]
+        assert first_call.args[0] == document.id
+
+    @pytest.mark.asyncio
     async def test_docx_downloaded_with_correct_key(
         self,
         parser_instance: parser.PipelineDocumentParser,

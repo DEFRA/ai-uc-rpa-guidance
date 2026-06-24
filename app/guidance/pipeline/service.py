@@ -236,19 +236,46 @@ class DocxParser:
 
         return None
 
+    # Core-properties titles that indicate an unfilled template rather than a real document title.
+    _TEMPLATE_TITLES: frozenset[str] = frozenset({"Design Team Guidance Template"})
+
+    @staticmethod
+    def _first_page_lines(doc: docx.document.Document) -> list[str]:
+        """Return text of all non-empty paragraphs before the first explicit page break.
+
+        Headers and footers are in a separate XML part and do not appear in
+        doc.paragraphs, so they are excluded automatically.
+        """
+        lines: list[str] = []
+        for para in doc.paragraphs:
+            if any(
+                br.get(qn("w:type")) == "page"
+                for run in para.runs
+                for br in run._r.findall(qn("w:br"))
+            ):
+                break
+            if para.text.strip():
+                lines.append(para.text.strip())
+        return lines
+
     @staticmethod
     def _extract_title(doc: docx.document.Document) -> str:
         title = doc.core_properties.title
-        if title and isinstance(title, str) and title.strip():
+        if (
+            title
+            and isinstance(title, str)
+            and title.strip()
+            and title.strip() not in DocxParser._TEMPLATE_TITLES
+        ):
             return title.strip()
 
         for para in doc.paragraphs:
             if para.style and para.style.name == "Title" and para.text.strip():
                 return para.text.strip()
 
-        for para in doc.paragraphs:
-            if para.style and para.style.name == "Heading 1" and para.text.strip():
-                return para.text.strip()
+        lines = DocxParser._first_page_lines(doc)
+        if lines:
+            return " — ".join(lines)
 
         return ""
 

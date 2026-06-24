@@ -97,3 +97,75 @@ class TestDownloadContent:
         result = await repo.download_content(doc_id)
 
         assert result == "# Title\n\nContent with unicode: café"
+
+
+class TestUploadManifest:
+    @pytest.mark.asyncio
+    async def test_uploads_to_correct_key(
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
+    ) -> None:
+        doc_id = uuid.UUID("507f1f77-bcf8-6cd7-9943-9011aabbccdd")
+        json_str = '{"document_id": "507f1f77-bcf8-6cd7-9943-9011aabbccdd", "title": "T", "sections": []}'
+        await repo.upload_manifest(doc_id, json_str)
+
+        mock_s3.put_object.assert_called_once_with(
+            Bucket="guidance-bucket",
+            Key=f"parsed_guidance/{doc_id}/manifest.json",
+            Body=json_str.encode(),
+            ContentType="application/json",
+        )
+
+
+class TestDownloadManifest:
+    @pytest.mark.asyncio
+    async def test_downloads_from_correct_key(
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
+    ) -> None:
+        doc_id = uuid.UUID("507f1f77-bcf8-6cd7-9943-9011aabbccdd")
+        json_str = '{"document_id": "...", "title": "T", "sections": []}'
+        body_mock = MagicMock()
+        body_mock.read.return_value = json_str.encode()
+        mock_s3.get_object.return_value = {"Body": body_mock}
+
+        result = await repo.download_manifest(doc_id)
+
+        mock_s3.get_object.assert_called_once_with(
+            Bucket="guidance-bucket",
+            Key=f"parsed_guidance/{doc_id}/manifest.json",
+        )
+        assert result == json_str
+
+
+class TestUploadSection:
+    @pytest.mark.asyncio
+    async def test_uploads_to_correct_key(
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
+    ) -> None:
+        doc_id = uuid.UUID("507f1f77-bcf8-6cd7-9943-9011aabbccdd")
+        await repo.upload_section(doc_id, "1.2.3", "## 1.2.3 Heading\n\nContent.")
+
+        mock_s3.put_object.assert_called_once_with(
+            Bucket="guidance-bucket",
+            Key=f"parsed_guidance/{doc_id}/sections/1.2.3.md",
+            Body=b"## 1.2.3 Heading\n\nContent.",
+            ContentType="text/markdown",
+        )
+
+
+class TestDownloadSection:
+    @pytest.mark.asyncio
+    async def test_downloads_from_correct_key(
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
+    ) -> None:
+        doc_id = uuid.UUID("507f1f77-bcf8-6cd7-9943-9011aabbccdd")
+        body_mock = MagicMock()
+        body_mock.read.return_value = b"## 1 Intro\n\nContent."
+        mock_s3.get_object.return_value = {"Body": body_mock}
+
+        result = await repo.download_section(doc_id, "1")
+
+        mock_s3.get_object.assert_called_once_with(
+            Bucket="guidance-bucket",
+            Key=f"parsed_guidance/{doc_id}/sections/1.md",
+        )
+        assert result == "## 1 Intro\n\nContent."

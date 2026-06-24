@@ -4,9 +4,10 @@ import logging
 import uuid
 from typing import Annotated
 
+import botocore.exceptions
 import fastapi
 
-from app.guidance.documents import api_schemas, dependencies, service
+from app.guidance.documents import api_schemas, dependencies, s3_repository, service
 
 router = fastapi.APIRouter(prefix="/guidance/documents", tags=["documents"])
 
@@ -130,3 +131,106 @@ async def list_documents(
         Paginated list of documents with status and timestamps.
     """
     return await guidance_service.list_documents(page, page_size)
+
+
+@router.get(
+    "/{document_id}/manifest",
+    status_code=fastapi.status.HTTP_200_OK,
+    responses={
+        fastapi.status.HTTP_200_OK: {
+            "description": "Document section manifest",
+        },
+        fastapi.status.HTTP_404_NOT_FOUND: {
+            "description": "Manifest not found — document may not have completed processing",
+        },
+    },
+)
+async def get_document_manifest(
+    document_id: uuid.UUID,
+    s3_repo: Annotated[
+        s3_repository.AbstractGuidanceStorageRepository,
+        fastapi.Depends(dependencies.get_s3_repository),
+    ],
+) -> api_schemas.DocumentManifestResponse:
+    """Return the section graph manifest for a parsed guidance document.
+
+    Args:
+        document_id: The guidance document UUID.
+        s3_repo: The S3 repository, injected via FastAPI DI.
+
+    Returns:
+        DocumentManifestResponse with a flat adjacency-list of all sections.
+
+    Raises:
+        HTTPException: 404 if the manifest has not been produced yet.
+    """
+    logger.info("Fetching manifest for document %s", document_id)
+    try:
+        raw = await s3_repo.download_manifest(document_id)
+        return api_schemas.DocumentManifestResponse.model_validate_json(raw)
+    except botocore.exceptions.ClientError as exc:
+        if exc.response["Error"]["Code"] == "NoSuchKey":
+            raise fastapi.HTTPException(
+                status_code=fastapi.status.HTTP_404_NOT_FOUND,
+                detail="Manifest not found",
+            ) from exc
+        raise
+
+
+@router.get(
+    "/{document_id}/sections/{section_number}",
+    status_code=fastapi.status.HTTP_200_OK,
+    responses={
+        fastapi.status.HTTP_200_OK: {
+            "description": "Section Markdown content (direct content only, no children)",
+            "content": {"text/markdown": {}},
+        },
+        fastapi.status.HTTP_404_NOT_FOUND: {
+            "description": "Section not found",
+        },
+    },
+)
+async def get_document_section(
+    document_id: uuid.UUID,
+    section_number: Annotated[
+        str,
+        fastapi.Path(
+            pattern=r"^\d+(\.\d+)*$",
+            description="Hierarchical section number, e.g. 1.2.3",
+        ),
+    ],
+    s3_repo: Annotated[
+        s3_repository.AbstractGuidanceStorageRepository,
+        fastapi.Depends(dependencies.get_s3_repository),
+    ],
+) -> fastapi.Response:
+    """Return the Markdown content for a single document section.
+
+    Returns only the direct content of the section (heading + immediate paragraphs,
+    lists, and tables). Children are not included; fetch them separately via their
+    own section numbers.
+
+    Args:
+        document_id: The guidance document UUID.
+        section_number: The hierarchical section number (e.g. "1", "1.2", "1.2.3").
+        s3_repo: The S3 repository, injected via FastAPI DI.
+
+    Returns:
+        Markdown response with media type text/markdown.
+
+    Raises:
+        HTTPException: 422 if section_number is not a valid hierarchical number.
+        HTTPException: 404 if the section does not exist.
+    """
+    try:
+        content = await s3_repo.download_section(document_id, section_number)
+        return fastapi.Response(
+            content=content, media_type="text/markdown; charset=utf-8"
+        )
+    except botocore.exceptions.ClientError as exc:
+        if exc.response["Error"]["Code"] == "NoSuchKey":
+            raise fastapi.HTTPException(
+                status_code=fastapi.status.HTTP_404_NOT_FOUND,
+                detail="Section not found",
+            ) from exc
+        raise

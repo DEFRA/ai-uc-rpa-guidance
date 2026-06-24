@@ -102,3 +102,14 @@ def to_markdown(doc: models.DocumentTree) -> str:
         lines.extend(_render_section(section))
 
     return "\n".join(lines)
+
+
+def section_to_markdown(section: models.SectionNode) -> str:
+    """Render a section's heading and direct content only, without recursing into children."""
+    lines: list[str] = []
+    prefix = "#" * (section.level + 1)
+    lines.append(f"{prefix} {section.number} {section.heading}")
+    lines.append("")
+    for node in section.content:
+        lines.extend(_render_content(node))
+    return "\n".join(lines)
