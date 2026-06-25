@@ -205,3 +205,6 @@ CLAUDE.MD
 
 specs/
 CLAUDE.md
+
+# Claude Code local config (not committed)
+.claude/

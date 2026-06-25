@@ -14,11 +14,13 @@ class TestAnalysisFinding:
             issue="Text is unclear",
             why_it_matters="Readers cannot follow the guidance",
             severity=models.SeverityLevel.MEDIUM,
+            confidence=models.ConfidenceLevel.HIGH,
             recommendation="Rewrite for clarity",
         )
         assert finding.category == models.FindingCategory.HEADINGS_AND_LAYOUT
         assert finding.section == "Introduction"
         assert finding.severity == models.SeverityLevel.MEDIUM
+        assert finding.confidence == models.ConfidenceLevel.HIGH
 
     def test_finding_severity_values(self) -> None:
         """Test all severity level values are valid."""
@@ -59,6 +61,7 @@ class TestAnalysisOutput:
                     issue="Missing information",
                     why_it_matters="The document is not complete",
                     severity=models.SeverityLevel.HIGH,
+                    confidence=models.ConfidenceLevel.MODERATE,
                     recommendation="Add details",
                 )
             ],

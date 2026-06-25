@@ -27,10 +27,28 @@ class SeverityLevel(StrEnum):
     CRITICAL = "critical"
 
 
+class ConfidenceLevel(StrEnum):
+    """How sure the agent is that a finding is real, independent of severity.
+
+    Severity says how bad the issue is if real; confidence says how likely it
+    is to be real. A finding can be critical severity but low confidence (e.g.
+    data that may be a real identifier but could be a placeholder).
+
+    - HIGH: clear, specific evidence in the document.
+    - MODERATE: probable, but could be a conversion artefact or example.
+    - LOW: plausible but unconfirmed; raised mainly for the writer to check.
+    """
+
+    HIGH = "high"
+    MODERATE = "moderate"
+    LOW = "low"
+
+
 class FindingCategory(StrEnum):
     """The publishing check that produced a finding.
 
-    Must stay in sync with the category list in prompts/checker.md — the
+    Must stay in sync with the category list in the active checker prompt
+    (prompts/checker_opus_rewrite_reviewed.md) — the
     prompt defines what each category means; this enum constrains what the
     LLM may emit.
     """
@@ -79,6 +97,15 @@ class AnalysisFinding(pydantic.BaseModel):
             "medium = contained breach of a publishing standard; high = "
             "Publishing would send the document back; critical = must not be "
             "published"
+        ),
+    )
+    confidence: ConfidenceLevel = pydantic.Field(
+        ...,
+        description=(
+            "How sure you are the issue is real, independent of severity: "
+            "high = clear, specific evidence; moderate = probable but could be "
+            "a conversion artefact or example; low = plausible but unconfirmed, "
+            "raised for the writer to check"
         ),
     )
     recommendation: str = pydantic.Field(
