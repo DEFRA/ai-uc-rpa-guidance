@@ -561,6 +561,23 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def validate_document(document_path: Path) -> None:
+    """Reject a missing file or one that is not a .docx (PK/zip), before uploading.
+
+    The uploader runs the file through a Word parser, so a non-.docx (e.g. markdown)
+    would only fail later as ``status=failed`` after a full upload + parse cycle.
+    """
+    if not document_path.is_file():
+        message = f"document not found: {document_path}"
+        raise SystemExit(message)
+    if document_path.read_bytes()[:2] != b"PK":
+        message = (
+            f"{document_path} is not a .docx (expected a PK/zip file); the uploader "
+            "parses Word documents, not markdown — pass the .docx, e.g. input.docx"
+        )
+        raise SystemExit(message)
+
+
 async def main() -> None:
     global _COLOUR  # noqa: PLW0603
     args = parse_args()
@@ -570,9 +587,7 @@ async def main() -> None:
         raise SystemExit(message)
 
     document_path = Path(args.document)
-    if not document_path.is_file():
-        message = f"document not found: {document_path}"
-        raise SystemExit(message)
+    validate_document(document_path)
     expectations = json.loads(Path(args.expectations).read_text(encoding="utf-8"))[
         "findings"
     ]
