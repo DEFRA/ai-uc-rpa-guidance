@@ -44,6 +44,20 @@ class AbstractGuidanceStorageRepository(ABC):
     ) -> str:
         """Download a single section's Markdown content from storage."""
 
+    @abstractmethod
+    async def upload_image(
+        self,
+        document_id: uuid.UUID,
+        filename: str,
+        data: bytes,
+        content_type: str,
+    ) -> None:
+        """Upload an extracted image to storage."""
+
+    @abstractmethod
+    async def download_image(self, document_id: uuid.UUID, filename: str) -> bytes:
+        """Download an extracted image from storage."""
+
 
 class GuidanceS3Repository(AbstractGuidanceStorageRepository):
     """Repository for guidance document artefacts stored in S3."""
@@ -205,3 +219,51 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
         )
 
         return body.decode()
+
+    async def upload_image(
+        self,
+        document_id: uuid.UUID,
+        filename: str,
+        data: bytes,
+        content_type: str,
+    ) -> None:
+        """Upload an extracted image to parsed_guidance/{document_id}/images/{filename}.
+
+        Args:
+            document_id: The guidance document ID.
+            filename: The image filename (e.g. "img_1.png").
+            data: Raw image bytes.
+            content_type: MIME type (e.g. "image/png").
+        """
+        key = f"parsed_guidance/{document_id}/images/{filename}"
+
+        await asyncio.to_thread(
+            self.s3.put_object,
+            Bucket=self.bucket,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+        )
+
+        logger.debug("Uploaded image to s3://%s/%s", self.bucket, key)
+
+    async def download_image(self, document_id: uuid.UUID, filename: str) -> bytes:
+        """Download an extracted image from parsed_guidance/{document_id}/images/{filename}.
+
+        Args:
+            document_id: The guidance document ID.
+            filename: The image filename (e.g. "img_1.png").
+
+        Returns:
+            Raw image bytes.
+        """
+        key = f"parsed_guidance/{document_id}/images/{filename}"
+
+        response = await asyncio.to_thread(
+            self.s3.get_object, Bucket=self.bucket, Key=key
+        )
+        body: bytes = await asyncio.to_thread(response["Body"].read)
+
+        logger.debug("Downloaded image from s3://%s/%s", self.bucket, key)
+
+        return body

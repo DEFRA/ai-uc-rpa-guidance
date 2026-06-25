@@ -1,6 +1,8 @@
 """Tests for PipelineDocumentParser."""
 
 import io
+import struct
+import zlib
 from unittest.mock import AsyncMock
 
 import bson
@@ -10,6 +12,25 @@ import pytest
 from app.guidance.documents import models, parser, s3_repository
 
 
+def _make_png_bytes() -> bytes:
+    """Generate a valid minimal 1×1 white RGB PNG."""
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    sig = b"\x89PNG\r\n\x1a\n"
+    ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+    raw_row = b"\x00\xff\xff\xff"  # filter=None, R=255, G=255, B=255
+    idat = chunk(b"IDAT", zlib.compress(raw_row))
+    iend = chunk(b"IEND", b"")
+    return sig + ihdr + idat + iend
+
+
 def _make_minimal_docx(title: str = "") -> bytes:
     """Build a minimal in-memory .docx with a heading and a paragraph."""
     doc = docx.Document()
@@ -17,6 +38,18 @@ def _make_minimal_docx(title: str = "") -> bytes:
         doc.core_properties.title = title
     doc.add_heading("Test Section", level=1)
     doc.add_paragraph("Hello world.")
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def _make_docx_with_images(count: int = 1) -> bytes:
+    """Build a minimal .docx with headings and embedded PNG images."""
+    doc = docx.Document()
+    png = _make_png_bytes()
+    for i in range(count):
+        doc.add_heading(f"Section {i + 1}", level=1)
+        doc.add_picture(io.BytesIO(png))
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
@@ -215,3 +248,78 @@ class TestPipelineDocumentParserFailure:
         result = await parser_instance.parse(_make_document())
 
         assert isinstance(result, parser.ParseResult)
+
+
+class TestPipelineDocumentParserImages:
+    @pytest.mark.asyncio
+    async def test_no_images_no_upload_calls(
+        self,
+        parser_instance: parser.PipelineDocumentParser,
+        s3_repo: AsyncMock,
+    ) -> None:
+        result = await parser_instance.parse(_make_document())
+
+        assert result.status == models.ExtractionStatus.COMPLETE
+        s3_repo.upload_image.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_image_uploaded_to_s3(
+        self,
+        s3_repo: AsyncMock,
+    ) -> None:
+        s3_repo.download_docx.return_value = _make_docx_with_images(count=1)
+        parser_inst = parser.PipelineDocumentParser(s3_repo)
+        document = _make_document()
+
+        result = await parser_inst.parse(document)
+
+        assert result.status == models.ExtractionStatus.COMPLETE
+        s3_repo.upload_image.assert_called_once()
+        call_args = s3_repo.upload_image.call_args
+        assert call_args.args[0] == document.id
+        assert call_args.args[1] == "img_1.png"
+        assert isinstance(call_args.args[2], bytes)
+        assert call_args.args[3] == "image/png"
+
+    @pytest.mark.asyncio
+    async def test_image_rel_path_set_in_markdown(
+        self,
+        s3_repo: AsyncMock,
+    ) -> None:
+        s3_repo.download_docx.return_value = _make_docx_with_images(count=1)
+        parser_inst = parser.PipelineDocumentParser(s3_repo)
+        document = _make_document()
+
+        result = await parser_inst.parse(document)
+
+        assert result.content is not None
+        assert f"/guidance/documents/{document.id}/images/img_1.png" in result.content
+
+    @pytest.mark.asyncio
+    async def test_multiple_images_all_uploaded(
+        self,
+        s3_repo: AsyncMock,
+    ) -> None:
+        s3_repo.download_docx.return_value = _make_docx_with_images(count=2)
+        parser_inst = parser.PipelineDocumentParser(s3_repo)
+        document = _make_document()
+
+        await parser_inst.parse(document)
+
+        assert s3_repo.upload_image.call_count == 2
+        filenames = [c.args[1] for c in s3_repo.upload_image.call_args_list]
+        assert filenames == ["img_1.png", "img_2.png"]
+
+    @pytest.mark.asyncio
+    async def test_image_upload_failure_returns_failed_status(
+        self,
+        s3_repo: AsyncMock,
+    ) -> None:
+        s3_repo.download_docx.return_value = _make_docx_with_images(count=1)
+        s3_repo.upload_image.side_effect = Exception("S3 upload failed")
+        parser_inst = parser.PipelineDocumentParser(s3_repo)
+
+        result = await parser_inst.parse(_make_document())
+
+        assert result.status == models.ExtractionStatus.FAILED
+        assert "S3 upload failed" in (result.error_message or "")
