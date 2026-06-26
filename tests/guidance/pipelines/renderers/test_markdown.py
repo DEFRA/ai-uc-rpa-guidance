@@ -76,6 +76,22 @@ class TestMarkdownRenderer:
         md = to_markdown(self._make_tree())
         assert "![Diagram](output/images/img_1.png)" in md
 
+    def test_single_cell_table_renders_as_blockquote(self):
+        tree = DocumentTree(
+            title="T",
+            children=[
+                SectionNode(
+                    heading="S",
+                    level=1,
+                    number="1",
+                    content=[TableNode(headers=["Note: review this policy."], rows=[])],
+                )
+            ],
+        )
+        md = to_markdown(tree)
+        assert "> Note: review this policy." in md
+        assert "|" not in md
+
     def test_empty_tree(self):
         tree = DocumentTree(title="Empty")
         md = to_markdown(tree)

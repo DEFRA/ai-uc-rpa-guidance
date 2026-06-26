@@ -103,6 +103,33 @@ class TestParserStructure:
         assert tables[0].headers == ["Name", "Value"]
         assert tables[0].rows == [["Alpha", "100"], ["Beta", "200"]]
 
+    def test_single_cell_table_parsed_as_header_only(self):
+        doc = Document()
+        doc.add_heading("Section", level=1)
+        table = doc.add_table(rows=1, cols=1)
+        table.cell(0, 0).text = "Important note."
+        tree = service.parse_doc(doc, title="T")
+        tables = [
+            n for n in tree.children[0].content if isinstance(n, models.TableNode)
+        ]
+        assert len(tables) == 1
+        assert tables[0].headers == ["Important note."]
+        assert tables[0].rows == []
+
+    def test_fully_merged_table_parsed_as_header_only(self):
+        doc = Document()
+        doc.add_heading("Section", level=1)
+        table = doc.add_table(rows=2, cols=2)
+        table.cell(0, 0).text = "Callout content."
+        table.cell(0, 0).merge(table.cell(1, 1))
+        tree = service.parse_doc(doc, title="T")
+        tables = [
+            n for n in tree.children[0].content if isinstance(n, models.TableNode)
+        ]
+        assert len(tables) == 1
+        assert tables[0].headers == ["Callout content."]
+        assert tables[0].rows == []
+
 
 class TestParserImages:
     def test_image_extraction(self, tmp_path):

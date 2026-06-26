@@ -26,6 +26,10 @@ def _render_table(table: models.TableNode) -> list[str]:
     if not table.headers:
         return []
 
+    # 1×1 tables are used in Word as callout boxes — render as a blockquote
+    if len(table.headers) == 1 and not table.rows:
+        return [f"> {table.headers[0]}", ""]
+
     lines: list[str] = []
     header_line = "| " + " | ".join(table.headers) + " |"
     separator = "| " + " | ".join("---" for _ in table.headers) + " |"
