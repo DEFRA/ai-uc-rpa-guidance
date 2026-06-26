@@ -176,6 +176,7 @@ class Finding:
     section: str
     issue: str
     severity: str
+    confidence: str
 
     @property
     def section_key(self) -> str:
@@ -201,6 +202,16 @@ class Cluster:
     def support(self) -> int:
         """Number of distinct runs this issue appears in."""
         return len(self.runs)
+
+    @property
+    def categories(self) -> list[str]:
+        """Sorted unique categories across all members."""
+        return sorted({member.category for member in self.members})
+
+    @property
+    def confidences(self) -> list[str]:
+        """Sorted unique confidence levels across all members."""
+        return sorted({member.confidence for member in self.members})
 
     def representative(self) -> Finding:
         """The medoid member — the issue text most typical of the cluster."""
@@ -254,6 +265,7 @@ def load_findings(path: Path, excluded: set[str]) -> list[Finding]:
             section=str(finding.get("section", "")),
             issue=str(finding.get("issue", "")),
             severity=str(finding.get("severity", "")),
+            confidence=str(finding.get("confidence", "")),
         )
         for finding in data.get("findings", [])
         if finding.get("category") not in excluded
@@ -461,7 +473,11 @@ def print_report(report: StabilityReport) -> None:
     for cluster in ordered:
         representative = cluster.representative()
         ratio = _support_colour(cluster.support, n_runs, f"{cluster.support}/{n_runs}")
-        print(f"  {ratio}  §{cluster.section_key}  {_truncate(representative.issue)}")
+        cats = ", ".join(cluster.categories)
+        confs = ", ".join(cluster.confidences)
+        print(
+            f"  {ratio}  §{cluster.section_key}  [{cats}]  [{confs}]  {_truncate(representative.issue)}"
+        )
 
 
 def make_bedrock_judge(model: Any) -> tuple[JudgeFn, JudgeUsage]:

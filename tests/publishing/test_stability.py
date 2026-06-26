@@ -30,9 +30,15 @@ def _finding(
     section: str,
     issue: str,
     category: str = "overall_publish_readiness",
+    confidence: str = "high",
 ) -> stability.Finding:
     return stability.Finding(
-        run=run, category=category, section=section, issue=issue, severity="medium"
+        run=run,
+        category=category,
+        section=section,
+        issue=issue,
+        severity="medium",
+        confidence=confidence,
     )
 
 
@@ -261,11 +267,17 @@ def test_load_findings_drops_excluded_categories(tmp_path: Path) -> None:
         json.dumps(
             {
                 "findings": [
-                    {"category": "links", "section": "Section 2", "issue": "a"},
+                    {
+                        "category": "links",
+                        "section": "Section 2",
+                        "issue": "a",
+                        "confidence": "high",
+                    },
                     {
                         "category": "headings_and_layout",
                         "section": "Section 2",
                         "issue": "b",
+                        "confidence": "moderate",
                     },
                 ]
             }
