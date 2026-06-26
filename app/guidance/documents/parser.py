@@ -172,7 +172,9 @@ class PipelineDocumentParser:
         """Upload each ImageNode in the tree to S3 and set its rel_path to the API endpoint."""
         section_counters: dict[str, int] = {}
         for section_number, node in _collect_images(tree):
-            section_counters[section_number] = section_counters.get(section_number, 0) + 1
+            section_counters[section_number] = (
+                section_counters.get(section_number, 0) + 1
+            )
             idx = section_counters[section_number]
             filename = f"{section_number}_img_{idx}{node.ext}"
             await self.s3_repo.upload_image(
