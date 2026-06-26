@@ -4,6 +4,7 @@ The LLM judge is faked throughout — no live Bedrock call — so the structural
 logic (blocking, clustering, aggregation, symmetry) is exercised deterministically.
 """
 
+import argparse
 import asyncio
 import json
 from pathlib import Path
@@ -288,3 +289,104 @@ def test_load_findings_drops_excluded_categories(tmp_path: Path) -> None:
     assert [(f.run, f.category, f.issue) for f in findings] == [
         ("run07", "headings_and_layout", "b")
     ]
+
+
+# --- match report -----------------------------------------------------------
+
+
+def _report(
+    runs: list[str], clusters: list[stability.Cluster]
+) -> stability.StabilityReport:
+    return stability.StabilityReport(
+        runs=runs,
+        findings_per_run=dict.fromkeys(runs, 0),
+        clusters=clusters,
+    )
+
+
+def test_match_fraction_is_support_over_runs_to_two_places() -> None:
+    """The fraction is the cluster's run support divided by the run count."""
+    two_of_three = _cluster(
+        "4.1", [_finding("run01", "s", "x"), _finding("run02", "s", "x")]
+    )
+    assert stability.match_fraction(two_of_three, n_runs=3) == "0.67"
+    all_three = _cluster(
+        "4.1",
+        [_finding(r, "s", "x") for r in ("run01", "run02", "run03")],
+    )
+    assert stability.match_fraction(all_three, n_runs=3) == "1.00"
+
+
+def test_section_display_strips_text_prefix_only() -> None:
+    """Text-keyed sections show their text; numeric keys pass through unchanged."""
+    assert stability.section_display("text:annex") == "annex"
+    assert stability.section_display("4.1") == "4.1"
+
+
+def test_match_report_rows_lays_runs_side_by_side_in_section_order() -> None:
+    """Each row is one issue: section, fraction, then every run's wording or a blank."""
+    runs = ["run01", "run02", "run03"]
+    clusters = [
+        _cluster(
+            "4.1",
+            [
+                _finding("run01", "Section 4.1", "tenure link broken"),
+                _finding("run02", "Section 4.1", "tenure link broken"),
+                _finding("run03", "Section 4.1", "tenure link broken"),
+            ],
+        ),
+        _cluster(
+            "2",
+            [
+                _finding("run01", "Section 2", "missing heading"),
+                _finding("run03", "Section 2", "heading absent"),
+            ],
+        ),
+    ]
+    rows = stability.match_report_rows(_report(runs, clusters))
+    assert rows[0] == ["section", "match_fraction", "run01", "run02", "run03"]
+    # Section order puts "2" before "4.1"; the run02 column is blank for the "2" issue.
+    assert rows[1] == ["2", "0.67", "missing heading", "", "heading absent"]
+    assert rows[2] == [
+        "4.1",
+        "1.00",
+        "tenure link broken",
+        "tenure link broken",
+        "tenure link broken",
+    ]
+
+
+def test_match_report_rows_joins_repeated_run_findings() -> None:
+    """Two findings from one run in a cluster share a cell, joined and de-duplicated."""
+    runs = ["run01", "run02"]
+    clusters = [
+        _cluster(
+            "4.1",
+            [
+                _finding("run01", "Section 4.1", "first phrasing"),
+                _finding("run01", "Section 4.1", "second phrasing"),
+                _finding("run02", "Section 4.1", "other run"),
+            ],
+        )
+    ]
+    rows = stability.match_report_rows(_report(runs, clusters))
+    # Both runs appear, so support is 2/2 despite run01 contributing two findings.
+    assert rows[1] == ["4.1", "1.00", "first phrasing | second phrasing", "other run"]
+
+
+def test_match_report_path_recovers_input_stem_from_run_file() -> None:
+    """With RUN_FILEs the stem drops the batch/run suffix; default dir is the input's."""
+    args = argparse.Namespace(document=None, out_dir=None)
+    paths = [Path("/runs/input-20260626T064742Z-run01.json")]
+    path = stability.match_report_path(args, paths)
+    assert path.parent == Path("/runs")
+    assert path.name.startswith("input-match-report-")
+    assert path.suffix == ".csv"
+
+
+def test_match_report_path_uses_document_stem_when_generating() -> None:
+    """With --document the report is named for the document and written to --out-dir."""
+    args = argparse.Namespace(document="some/input.docx", out_dir="/out")
+    path = stability.match_report_path(args, paths=[])
+    assert path.parent == Path("/out")
+    assert path.name.startswith("input-match-report-")

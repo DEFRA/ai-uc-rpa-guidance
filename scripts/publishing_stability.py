@@ -38,12 +38,15 @@ Run generation and the stability comparison have separate concurrency controls:
 
 import argparse
 import asyncio
+import csv
 import json
+import re
 import statistics
 import sys
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from itertools import combinations
 from pathlib import Path
 from typing import Any
@@ -480,6 +483,78 @@ def print_report(report: StabilityReport) -> None:
         )
 
 
+# Trailing "-<batch timestamp>-runNN" tail that generate_runs appends to the input
+# stem; stripped to recover the original document name for the report filename.
+_RUN_FILE_SUFFIX = re.compile(r"-\d{8}T\d{6}Z-run\d+$")
+
+
+def match_fraction(cluster: Cluster, n_runs: int) -> str:
+    """Fraction of runs the cluster appears in, as a two-decimal string."""
+    return f"{cluster.support / n_runs:.2f}" if n_runs else "0.00"
+
+
+def section_display(section_key: str) -> str:
+    """A section key for display: the section text for text-keyed blocks, else the number."""
+    return section_key.removeprefix("text:")
+
+
+def match_report_rows(report: StabilityReport) -> list[list[str]]:
+    """Header plus one row per cluster: section, match fraction, then each run's issue.
+
+    Clusters are laid out in section order so each row reads as one issue with every
+    run's wording of it side by side; a run that did not raise the issue leaves a blank
+    cell. A run contributing two findings to one cluster has them joined with ' | '.
+    """
+    n_runs = len(report.runs)
+    rows = [["section", "match_fraction", *report.runs]]
+    ordered = sorted(
+        report.clusters,
+        key=lambda c: (_section_sort_key(c.section_key), -c.support),
+    )
+    for cluster in ordered:
+        by_run: dict[str, list[str]] = {}
+        for member in cluster.members:
+            by_run.setdefault(member.run, []).append(member.issue)
+        cells = [" | ".join(dict.fromkeys(by_run.get(run, []))) for run in report.runs]
+        rows.append(
+            [
+                section_display(cluster.section_key),
+                match_fraction(cluster, n_runs),
+                *cells,
+            ]
+        )
+    return rows
+
+
+def write_match_report(report: StabilityReport, path: Path) -> None:
+    """Write the per-run match report to ``path`` as CSV.
+
+    Encoded utf-8-sig: the BOM makes Excel decode it as UTF-8 rather than the local
+    codepage, so dashes and quotes in issue text are not mangled on open.
+    """
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        csv.writer(handle).writerows(match_report_rows(report))
+
+
+def match_report_path(args: argparse.Namespace, paths: list[Path]) -> Path:
+    """Where to write the match report: '<input>-match-report-<timestamp>.csv'.
+
+    Written to --out-dir, or the input's own directory when that is unset: the
+    document's for --document, otherwise the run files'. The input stem is the document
+    name, otherwise recovered from the first run file by stripping its batch/run suffix.
+    """
+    if args.document is not None:
+        document = Path(args.document)
+        default_dir = document.resolve().parent
+        stem = document.stem
+    else:
+        default_dir = paths[0].parent
+        stem = _RUN_FILE_SUFFIX.sub("", paths[0].stem)
+    out_dir = Path(args.out_dir) if args.out_dir else default_dir
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return out_dir / f"{stem}-match-report-{timestamp}.csv"
+
+
 def make_bedrock_judge(model: Any) -> tuple[JudgeFn, JudgeUsage]:
     """A Bedrock-backed judge (temperature 0) and the usage it accumulates.
 
@@ -621,6 +696,14 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--match-report",
+        action="store_true",
+        help=(
+            "Also write a per-run match report CSV "
+            "(<input>-match-report-<ts>.csv) to --out-dir or the input's directory."
+        ),
+    )
+    parser.add_argument(
         "--no-colour",
         action="store_true",
         help="Disable ANSI colour (default: on when stdout is a TTY).",
@@ -721,6 +804,10 @@ async def main() -> None:
         judge_usage=judge_usage,
     )
     print_report(report)
+    if args.match_report:
+        path = match_report_path(args, paths)
+        write_match_report(report, path)
+        _progress(f"wrote match report {path}")
 
 
 if __name__ == "__main__":
