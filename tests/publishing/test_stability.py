@@ -381,7 +381,7 @@ def test_match_report_path_recovers_input_stem_from_run_file() -> None:
     path = stability.match_report_path(args, paths)
     assert path.parent == Path("/runs")
     assert path.name.startswith("input-match-report-")
-    assert path.suffix == ".csv"
+    assert path.suffix == ".xlsx"
 
 
 def test_match_report_path_uses_document_stem_when_generating() -> None:

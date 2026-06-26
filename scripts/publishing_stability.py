@@ -38,7 +38,6 @@ Run generation and the stability comparison have separate concurrency controls:
 
 import argparse
 import asyncio
-import csv
 import json
 import re
 import statistics
@@ -527,17 +526,93 @@ def match_report_rows(report: StabilityReport) -> list[list[str]]:
 
 
 def write_match_report(report: StabilityReport, path: Path) -> None:
-    """Write the per-run match report to ``path`` as CSV.
+    """Write the per-run match report to ``path`` as a formatted Excel workbook.
 
-    Encoded utf-8-sig: the BOM makes Excel decode it as UTF-8 rather than the local
-    codepage, so dashes and quotes in issue text are not mangled on open.
+    Formatting applied:
+    - Font: Aptos Narrow 11pt throughout.
+    - Row 1 headers: bold with a bottom border only.
+    - Section column (A): text number format so "4.1" is never coerced to a decimal.
+    - Match fraction column (B): float stored as 0% percentage with Excel's standard
+      red→white→blue 3-colour scale (F8696B / FCFCFF / 5A8AC6).
+    - Run columns (C+): 85 character units wide (≈ 600 px), word-wrapped, top-aligned.
     """
-    with path.open("w", encoding="utf-8-sig", newline="") as handle:
-        csv.writer(handle).writerows(match_report_rows(report))
+    import openpyxl
+    from openpyxl.formatting.rule import ColorScaleRule
+    from openpyxl.styles import Alignment, Border, Font, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    base_font = Font(name="Aptos Narrow", size=11)
+    header_font = Font(name="Aptos Narrow", size=11, bold=True)
+    header_border = Border(bottom=Side(style="thin"))
+    top = Alignment(vertical="top")
+    wrap = Alignment(wrap_text=True, vertical="top")
+    n_runs = len(report.runs)
+
+    for col, text in enumerate(["section", "match", *report.runs], 1):
+        cell = ws.cell(row=1, column=col, value=text)
+        cell.font = header_font
+        cell.border = header_border
+
+    ordered = sorted(
+        report.clusters,
+        key=lambda c: (_section_sort_key(c.section_key), -c.support),
+    )
+    for row_idx, cluster in enumerate(ordered, start=2):
+        by_run: dict[str, list[str]] = {}
+        for m in cluster.members:
+            by_run.setdefault(m.run, []).append(m.issue)
+
+        sec = ws.cell(row=row_idx, column=1, value=section_display(cluster.section_key))
+        sec.number_format = "@"
+        sec.alignment = top
+        sec.font = base_font
+
+        frac = ws.cell(
+            row=row_idx,
+            column=2,
+            value=cluster.support / n_runs if n_runs else 0.0,
+        )
+        frac.number_format = "0%"
+        frac.alignment = top
+        frac.font = base_font
+
+        for col_idx, run in enumerate(report.runs, start=3):
+            issues = by_run.get(run, [])
+            cell = ws.cell(
+                row=row_idx,
+                column=col_idx,
+                value=" | ".join(dict.fromkeys(issues)),
+            )
+            cell.alignment = wrap
+            cell.font = base_font
+
+    if ordered:
+        # Excel's built-in Red–White–Blue preset: low=flaky (red), high=stable (blue).
+        ws.conditional_formatting.add(
+            f"B2:B{1 + len(ordered)}",
+            ColorScaleRule(
+                start_type="min",
+                start_color="FFF8696B",
+                mid_type="percentile",
+                mid_value=50,
+                mid_color="FFFCFCFF",
+                end_type="max",
+                end_color="FF5A8AC6",
+            ),
+        )
+
+    ws.column_dimensions["A"].width = 10
+    ws.column_dimensions["B"].width = 7
+    for i in range(3, 3 + n_runs):
+        ws.column_dimensions[get_column_letter(i)].width = 60
+
+    wb.save(path)
 
 
 def match_report_path(args: argparse.Namespace, paths: list[Path]) -> Path:
-    """Where to write the match report: '<input>-match-report-<timestamp>.csv'.
+    """Where to write the match report: '<input>-match-report-<timestamp>.xlsx'.
 
     Written to --out-dir, or the input's own directory when that is unset: the
     document's for --document, otherwise the run files'. The input stem is the document
@@ -552,7 +627,7 @@ def match_report_path(args: argparse.Namespace, paths: list[Path]) -> Path:
         stem = _RUN_FILE_SUFFIX.sub("", paths[0].stem)
     out_dir = Path(args.out_dir) if args.out_dir else default_dir
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    return out_dir / f"{stem}-match-report-{timestamp}.csv"
+    return out_dir / f"{stem}-match-report-{timestamp}.xlsx"
 
 
 def make_bedrock_judge(model: Any) -> tuple[JudgeFn, JudgeUsage]:
@@ -699,8 +774,8 @@ def parse_args() -> argparse.Namespace:
         "--match-report",
         action="store_true",
         help=(
-            "Also write a per-run match report CSV "
-            "(<input>-match-report-<ts>.csv) to --out-dir or the input's directory."
+            "Also write a per-run match report Excel workbook "
+            "(<input>-match-report-<ts>.xlsx) to --out-dir or the input's directory."
         ),
     )
     parser.add_argument(
