@@ -196,6 +196,12 @@ class DocxParser:
 
     @staticmethod
     def _parse_table(table: Table) -> models.TableNode:
+        all_cells = [cell for row in table.rows for cell in row.cells]
+        # A fully-merged table has every grid position pointing to the same TC element.
+        # Normalise it to a single-header node so the renderer can treat it as a callout.
+        if all_cells and len({cell._tc for cell in all_cells}) == 1:
+            return models.TableNode(headers=[all_cells[0].text.strip()], rows=[])
+
         rows_data: list[list[str]] = []
         for row in table.rows:
             rows_data.append([cell.text.strip() for cell in row.cells])
