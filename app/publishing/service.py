@@ -3,7 +3,7 @@
 import logging
 
 from app.infra.bedrock import llm
-from app.publishing import api_schemas, models
+from app.publishing import api_schemas, models, ordering
 from app.publishing.agents import checker
 
 logger = logging.getLogger(__name__)
@@ -42,6 +42,8 @@ async def analyse_document(
 
     logger.info("[Publishing] Analysis completed successfully")
 
+    findings = ordering.order_findings(result.output.findings)
+
     return api_schemas.AnalyseResponse(
         status="completed",
         document_title=result.output.document_title,
@@ -55,7 +57,7 @@ async def analyse_document(
                 confidence=f.confidence.value,
                 recommendation=f.recommendation,
             )
-            for f in result.output.findings
+            for f in findings
         ],
         good_points=result.output.good_points,
         summary=result.output.summary,
