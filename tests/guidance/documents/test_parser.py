@@ -277,7 +277,7 @@ class TestPipelineDocumentParserImages:
         s3_repo.upload_image.assert_called_once()
         call_args = s3_repo.upload_image.call_args
         assert call_args.args[0] == document.id
-        assert call_args.args[1] == "img_1.png"
+        assert call_args.args[1] == "1_img_1.png"
         assert isinstance(call_args.args[2], bytes)
         assert call_args.args[3] == "image/png"
 
@@ -293,7 +293,7 @@ class TestPipelineDocumentParserImages:
         result = await parser_inst.parse(document)
 
         assert result.content is not None
-        assert f"/guidance/documents/{document.id}/images/img_1.png" in result.content
+        assert f"/guidance/documents/{document.id}/images/1_img_1.png" in result.content
 
     @pytest.mark.asyncio
     async def test_multiple_images_all_uploaded(
@@ -308,7 +308,7 @@ class TestPipelineDocumentParserImages:
 
         assert s3_repo.upload_image.call_count == 2
         filenames = [c.args[1] for c in s3_repo.upload_image.call_args_list]
-        assert filenames == ["img_1.png", "img_2.png"]
+        assert filenames == ["1_img_1.png", "2_img_1.png"]
 
     @pytest.mark.asyncio
     async def test_image_upload_failure_returns_failed_status(

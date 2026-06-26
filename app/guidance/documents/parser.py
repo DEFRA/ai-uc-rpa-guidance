@@ -33,14 +33,14 @@ def _ext_to_content_type(ext: str) -> str:
 
 def _collect_images(
     tree: pipeline_models.DocumentTree,
-) -> list[pipeline_models.ImageNode]:
-    """Return all ImageNodes from the tree in document order."""
-    images: list[pipeline_models.ImageNode] = []
+) -> list[tuple[str, pipeline_models.ImageNode]]:
+    """Return (section_number, ImageNode) pairs from the tree in document order."""
+    images: list[tuple[str, pipeline_models.ImageNode]] = []
 
     def _walk(section: pipeline_models.SectionNode) -> None:
         for node in section.content:
             if isinstance(node, pipeline_models.ImageNode):
-                images.append(node)
+                images.append((section.number, node))
         for child in section.children:
             _walk(child)
 
@@ -170,8 +170,11 @@ class PipelineDocumentParser:
         self, document_id: uuid.UUID, tree: pipeline_models.DocumentTree
     ) -> None:
         """Upload each ImageNode in the tree to S3 and set its rel_path to the API endpoint."""
-        for idx, node in enumerate(_collect_images(tree), start=1):
-            filename = f"img_{idx}{node.ext}"
+        section_counters: dict[str, int] = {}
+        for section_number, node in _collect_images(tree):
+            section_counters[section_number] = section_counters.get(section_number, 0) + 1
+            idx = section_counters[section_number]
+            filename = f"{section_number}_img_{idx}{node.ext}"
             await self.s3_repo.upload_image(
                 document_id,
                 filename,
