@@ -169,3 +169,52 @@ class TestDownloadSection:
             Key=f"parsed_guidance/{doc_id}/sections/1.md",
         )
         assert result == "## 1 Intro\n\nContent."
+
+
+class TestUploadImage:
+    @pytest.mark.asyncio
+    async def test_uploads_to_correct_key(
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
+    ) -> None:
+        doc_id = uuid.UUID("507f1f77-bcf8-6cd7-9943-9011aabbccdd")
+        await repo.upload_image(doc_id, "img_1.png", b"\x89PNG", "image/png")
+
+        mock_s3.put_object.assert_called_once_with(
+            Bucket="guidance-bucket",
+            Key=f"parsed_guidance/{doc_id}/images/img_1.png",
+            Body=b"\x89PNG",
+            ContentType="image/png",
+        )
+
+    @pytest.mark.asyncio
+    async def test_uses_provided_content_type(
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
+    ) -> None:
+        doc_id = uuid.UUID("507f1f77-bcf8-6cd7-9943-9011aabbccdd")
+        await repo.upload_image(doc_id, "img_2.jpeg", b"jpeg_data", "image/jpeg")
+
+        mock_s3.put_object.assert_called_once_with(
+            Bucket="guidance-bucket",
+            Key=f"parsed_guidance/{doc_id}/images/img_2.jpeg",
+            Body=b"jpeg_data",
+            ContentType="image/jpeg",
+        )
+
+
+class TestDownloadImage:
+    @pytest.mark.asyncio
+    async def test_downloads_from_correct_key(
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
+    ) -> None:
+        doc_id = uuid.UUID("507f1f77-bcf8-6cd7-9943-9011aabbccdd")
+        body_mock = MagicMock()
+        body_mock.read.return_value = b"\x89PNG"
+        mock_s3.get_object.return_value = {"Body": body_mock}
+
+        result = await repo.download_image(doc_id, "img_1.png")
+
+        mock_s3.get_object.assert_called_once_with(
+            Bucket="guidance-bucket",
+            Key=f"parsed_guidance/{doc_id}/images/img_1.png",
+        )
+        assert result == b"\x89PNG"

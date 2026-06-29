@@ -4,6 +4,7 @@ import dataclasses
 import io
 import json
 import logging
+import uuid
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -13,6 +14,41 @@ from app.guidance.documents import models, s3_repository
 from app.guidance.pipeline import models as pipeline_models
 from app.guidance.pipeline import service as pipeline_service
 from app.guidance.pipeline.renderers import markdown as markdown_renderer
+
+_CONTENT_TYPES: dict[str, str] = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".tiff": "image/tiff",
+    ".tif": "image/tiff",
+}
+
+
+def _ext_to_content_type(ext: str) -> str:
+    return _CONTENT_TYPES.get(ext.lower(), "application/octet-stream")
+
+
+def _collect_images(
+    tree: pipeline_models.DocumentTree,
+) -> list[tuple[str, pipeline_models.ImageNode]]:
+    """Return (section_number, ImageNode) pairs from the tree in document order."""
+    images: list[tuple[str, pipeline_models.ImageNode]] = []
+
+    def _walk(section: pipeline_models.SectionNode) -> None:
+        for node in section.content:
+            if isinstance(node, pipeline_models.ImageNode):
+                images.append((section.number, node))
+        for child in section.children:
+            _walk(child)
+
+    for section in tree.children:
+        _walk(section)
+
+    return images
+
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +130,8 @@ class PipelineDocumentParser:
                 if not document.title and tree.title:
                     inferred_title = tree.title
 
+                await self._upload_images(document.id, tree)
+
                 rendered_markdown = markdown_renderer.to_markdown(tree)
 
                 await self.s3_repo.upload_content(document.id, rendered_markdown)
@@ -127,3 +165,22 @@ class PipelineDocumentParser:
                 status=models.ExtractionStatus.FAILED,
                 error_message=str(exc),
             )
+
+    async def _upload_images(
+        self, document_id: uuid.UUID, tree: pipeline_models.DocumentTree
+    ) -> None:
+        """Upload each ImageNode in the tree to S3 and set its rel_path to the API endpoint."""
+        section_counters: dict[str, int] = {}
+        for section_number, node in _collect_images(tree):
+            section_counters[section_number] = (
+                section_counters.get(section_number, 0) + 1
+            )
+            idx = section_counters[section_number]
+            filename = f"{section_number}_img_{idx}{node.ext}"
+            await self.s3_repo.upload_image(
+                document_id,
+                filename,
+                node.data,
+                _ext_to_content_type(node.ext),
+            )
+            node.rel_path = f"/guidance/documents/{document_id}/images/{filename}"

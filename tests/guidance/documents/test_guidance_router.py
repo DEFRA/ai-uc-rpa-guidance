@@ -386,6 +386,73 @@ class TestSectionEndpoint:
         assert response.status_code in {404, 422}
 
 
+class TestImageEndpoint:
+    """Test GET /guidance/documents/{document_id}/images/{filename}."""
+
+    _DOCUMENT_ID = "12345678-1234-5678-1234-567812345678"
+
+    def test_returns_image_bytes(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+    ) -> None:
+        image_data = b"\x89PNG\r\n\x1a\n"
+        mock_s3_repo.download_image.return_value = image_data
+
+        response = client_with_s3.get(
+            f"/guidance/documents/{self._DOCUMENT_ID}/images/img_1.png"
+        )
+
+        assert response.status_code == 200
+        assert response.content == image_data
+        assert response.headers["content-type"] == "image/png"
+
+    def test_returns_correct_content_type_for_jpeg(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+    ) -> None:
+        mock_s3_repo.download_image.return_value = b"jpeg_data"
+
+        response = client_with_s3.get(
+            f"/guidance/documents/{self._DOCUMENT_ID}/images/img_2.jpeg"
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/jpeg"
+
+    def test_returns_404_when_image_missing(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+    ) -> None:
+        mock_s3_repo.download_image.side_effect = _no_such_key_error()
+
+        response = client_with_s3.get(
+            f"/guidance/documents/{self._DOCUMENT_ID}/images/img_1.png"
+        )
+
+        assert response.status_code == 404
+
+    def test_returns_422_for_filename_starting_with_dash(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+    ) -> None:
+        response = client_with_s3.get(
+            f"/guidance/documents/{self._DOCUMENT_ID}/images/-secret.png"
+        )
+
+        assert response.status_code == 422
+
+    def test_returns_422_for_invalid_document_id(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+    ) -> None:
+        response = client_with_s3.get("/guidance/documents/not-a-uuid/images/img_1.png")
+
+        assert response.status_code == 422
+
+
 class TestSwaggerDocumentation:
     """Test that API documentation is available."""
 
