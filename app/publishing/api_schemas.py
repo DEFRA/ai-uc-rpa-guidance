@@ -41,6 +41,10 @@ class FindingResponse(pydantic.BaseModel):
     severity: str = pydantic.Field(
         ..., description="Issue severity: info, low, medium, high, or critical"
     )
+    confidence: str = pydantic.Field(
+        ...,
+        description="How sure the issue is real: high, moderate, or low",
+    )
     recommendation: str = pydantic.Field(
         ..., description="Recommendation for resolving the issue"
     )

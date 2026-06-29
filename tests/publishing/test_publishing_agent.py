@@ -1,6 +1,9 @@
 """Tests for the publishing QA agent and models."""
 
+import dataclasses
+
 import app.publishing.models as models
+from app.publishing.agents import checker
 
 
 class TestAnalysisFinding:
@@ -14,11 +17,13 @@ class TestAnalysisFinding:
             issue="Text is unclear",
             why_it_matters="Readers cannot follow the guidance",
             severity=models.SeverityLevel.MEDIUM,
+            confidence=models.ConfidenceLevel.HIGH,
             recommendation="Rewrite for clarity",
         )
         assert finding.category == models.FindingCategory.HEADINGS_AND_LAYOUT
         assert finding.section == "Introduction"
         assert finding.severity == models.SeverityLevel.MEDIUM
+        assert finding.confidence == models.ConfidenceLevel.HIGH
 
     def test_finding_severity_values(self) -> None:
         """Test all severity level values are valid."""
@@ -59,6 +64,7 @@ class TestAnalysisOutput:
                     issue="Missing information",
                     why_it_matters="The document is not complete",
                     severity=models.SeverityLevel.HIGH,
+                    confidence=models.ConfidenceLevel.MODERATE,
                     recommendation="Add details",
                 )
             ],
@@ -85,3 +91,37 @@ class TestAnalysisOutput:
         """verdict must come after findings so it is conditioned on them."""
         fields = list(models.AnalysisOutput.model_fields)
         assert fields.index("verdict") > fields.index("findings")
+
+
+class FakePromptRepository:
+    """Returns a fixed body and records the names it was asked for."""
+
+    def __init__(self, body: str) -> None:
+        self.body = body
+        self.requested: list[str] = []
+
+    async def get_prompt_by_name(self, name: str) -> str:
+        self.requested.append(name)
+        return self.body
+
+
+@dataclasses.dataclass
+class StubRunContext:
+    deps: models.AgentDependencies
+
+
+class TestCheckerInstructions:
+    """The checker agent's instruction builder."""
+
+    async def test_instructions_loaded_from_repository(self) -> None:
+        """Instructions are the repository prompt with the document appended."""
+        repo = FakePromptRepository("SYSTEM PROMPT")
+        deps = models.AgentDependencies(
+            document_text="# The Document",
+            prompt_repository=repo,
+        )
+
+        result = await checker.get_instructions(StubRunContext(deps=deps))
+
+        assert repo.requested == ["checker_rpa_opus_4_8_rewrite.md"]
+        assert result == "SYSTEM PROMPT\n\n# The Document"

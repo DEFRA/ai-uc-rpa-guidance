@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Evaluate the publishing checker against a ground-truth expectations file.
 
-Runs a document through ``POST /publishing/analyse`` one or more times, captures
-each full response, then for every expected finding checks whether the produced
-findings contain a gate-passing match and scores its issue text for correctness
-with the pydantic-evals LLM judge.
+Drives the live async flow as a black-box client (the same public HTTP contract
+``scripts/publishing.sh`` uses, no app internals): upload the .docx once (reusing
+an already-parsed copy with a matching content hash if present), then for each run
+submit it for analysis and poll the job to completion. Every expected finding is
+then checked against the run's produced findings for a gate-passing match, whose
+issue text is scored for correctness with the pydantic-evals LLM judge.
 
 A produced finding clears the mechanical gates for an expectation when:
   * the expected section number appears in the produced section (titles ignored;
@@ -17,13 +19,14 @@ correctness (0.0-1.0) by the LLM. Only section, category, severity and issue are
 
 Usage:
   uv run --env-file .env python scripts/publishing_evaluate.py \
-      <input.md> <expectations.json> [--runs N] [--host URL] [--out-dir DIR]
+      <document.docx> <expectations.json> \
+      [--runs N] [--host URL] [--uploader URL] [--out-dir DIR]
 
 Expectations file shape (a subset of the analyse response):
   {"findings": [{"category": ..., "section": ..., "severity": ..., "issue": ...}]}
 
-Each run's full response is written to ``<input-stem>-<batch-utc>-run<NN>.json`` in
-the output directory (default: the input file's directory). ``<batch-utc>`` is one
+Each run's analysis result is written to ``<doc-stem>-<batch-utc>-run<NN>.json`` in
+the output directory (default: the document file's directory). ``<batch-utc>`` is one
 ISO-8601-basic UTC timestamp captured when the script starts, shared by every file
 of the invocation -- so a batch's files share a common prefix, never overwrite a
 prior batch, and sort chronologically.
@@ -31,6 +34,8 @@ prior batch, and sort chronologically.
 
 import argparse
 import asyncio
+import base64
+import hashlib
 import json
 import re
 import sys
@@ -45,10 +50,17 @@ from dotenv import find_dotenv, load_dotenv
 from pydantic_ai.settings import ModelSettings
 from pydantic_evals.evaluators.llm_as_a_judge import judge_output_expected
 
+DOCUMENTS_PATH = "/guidance/documents/"
 ANALYSE_PATH = "/publishing/analyse"
-DEFAULT_HOST = "http://127.0.0.1:8086"
+JOBS_PATH = "/publishing/jobs"
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+DEFAULT_HOST = "http://localhost:8085"
+DEFAULT_UPLOADER = "http://localhost:7337"
 DEFAULT_CONCURRENCY = 5
 REQUEST_TIMEOUT_S = 600.0
+PARSE_TIMEOUT_S = 180.0
+ANALYSE_TIMEOUT_S = 600.0
+POLL_INTERVAL_S = 2.0
 SEVERITY_ORDER = ("info", "low", "medium", "high", "critical")
 HYPERLINK_PATTERN = re.compile(r"https?://\S+|www\.\S+")
 
@@ -274,15 +286,112 @@ async def evaluate_expectation(
     )
 
 
-async def post_analysis(
-    client: httpx.AsyncClient, host: str, document_text: str
-) -> dict[str, Any]:
-    """POST the document to the analyse endpoint and return the parsed response."""
-    response = await client.post(
-        f"{host}{ANALYSE_PATH}", json={"document_text": document_text}
-    )
+def content_hash(path: Path) -> str:
+    """Base64 SHA-256 of a file -- the form the uploader reports as contentHash."""
+    return base64.b64encode(hashlib.sha256(path.read_bytes()).digest()).decode()
+
+
+async def _list_documents(client: httpx.AsyncClient, host: str) -> list[dict[str, Any]]:
+    """All guidance documents (page_size is capped at 100 by the API)."""
+    response = await client.get(f"{host}{DOCUMENTS_PATH}?page=1&page_size=100")
     response.raise_for_status()
-    return response.json()
+    return response.json().get("items", [])
+
+
+async def _wait_for_parse(client: httpx.AsyncClient, host: str, doc_id: str) -> None:
+    """Poll the document list until ``doc_id`` reaches status ``complete``."""
+    deadline = time.monotonic() + PARSE_TIMEOUT_S
+    while time.monotonic() < deadline:
+        for item in await _list_documents(client, host):
+            if item.get("id") != doc_id:
+                continue
+            status = item.get("status")
+            if status == "complete":
+                return
+            if status in {"failed", "error"}:
+                message = f"document {doc_id} failed to parse (status={status})"
+                raise RuntimeError(message)
+        await asyncio.sleep(POLL_INTERVAL_S)
+    message = f"timed out waiting for document {doc_id} to finish parsing"
+    raise RuntimeError(message)
+
+
+async def resolve_document_id(
+    client: httpx.AsyncClient, host: str, uploader: str, docx_path: Path
+) -> str:
+    """Return the id of a parsed copy of the document, uploading it if absent.
+
+    Black-box: hashes the file and reuses a ``complete`` document with a matching
+    contentHash; otherwise initiates an upload, pushes the bytes to the uploader,
+    discovers the new id and waits for parsing -- exactly as the frontend does.
+    """
+    want = content_hash(docx_path)
+    existing = await _list_documents(client, host)
+    for item in existing:
+        if item.get("status") == "complete" and item.get("contentHash") == want:
+            return str(item["id"])
+
+    before = {item.get("id") for item in existing}
+    initiate = await client.post(
+        f"{host}{DOCUMENTS_PATH}",
+        json={"title": docx_path.stem, "redirect": "http://localhost/uploaded"},
+    )
+    initiate.raise_for_status()
+    upload_id = initiate.json()["uploadId"]
+
+    with docx_path.open("rb") as handle:
+        upload = await client.post(
+            f"{uploader}/upload-and-scan/{upload_id}",
+            files={"file": (docx_path.name, handle, DOCX_MIME)},
+        )
+    if upload.status_code >= 400:
+        message = f"upload failed (HTTP {upload.status_code}): {upload.text}"
+        raise RuntimeError(message)
+
+    deadline = time.monotonic() + PARSE_TIMEOUT_S
+    doc_id: str | None = None
+    while time.monotonic() < deadline:
+        new = {item.get("id") for item in await _list_documents(client, host)} - before
+        if new:
+            doc_id = str(next(iter(new)))
+            break
+        await asyncio.sleep(POLL_INTERVAL_S)
+    if doc_id is None:
+        message = "timed out waiting for the uploaded document to appear"
+        raise RuntimeError(message)
+
+    await _wait_for_parse(client, host, doc_id)
+    return doc_id
+
+
+async def analyse_document(
+    client: httpx.AsyncClient, host: str, document_id: str
+) -> dict[str, Any]:
+    """Run one analysis to completion and return its result (with ``findings``).
+
+    Submits the document, then polls the job until it completes; raises if the
+    job errors or does not finish within the analysis timeout.
+    """
+    submit = await client.post(
+        f"{host}{ANALYSE_PATH}", json={"documentId": document_id}
+    )
+    submit.raise_for_status()
+    job_id = submit.json()["jobId"]
+
+    deadline = time.monotonic() + ANALYSE_TIMEOUT_S
+    while time.monotonic() < deadline:
+        poll = await client.get(f"{host}{JOBS_PATH}/{job_id}")
+        poll.raise_for_status()
+        job = poll.json()
+        status = job.get("status")
+        if status == "completed":
+            return job.get("result") or {}
+        if status == "error":
+            message = f"analysis job {job_id} errored: {job.get('errorMessage')}"
+            raise RuntimeError(message)
+        await asyncio.sleep(POLL_INTERVAL_S)
+    message = f"timed out waiting for analysis job {job_id} to complete"
+    raise RuntimeError(message)
 
 
 def expectation_label(expected: dict[str, Any], index: int) -> str:
@@ -329,7 +438,7 @@ class Batch:
 
     client: httpx.AsyncClient
     host: str
-    document_text: str
+    document_id: str
     expectations: list[dict[str, Any]]
     model: Any
     out_dir: Path
@@ -357,7 +466,7 @@ async def run_and_evaluate(batch: Batch, run_index: int) -> RunResult:
     """
     async with batch.semaphore:
         start = time.perf_counter()
-        data = await post_analysis(batch.client, batch.host, batch.document_text)
+        data = await analyse_document(batch.client, batch.host, batch.document_id)
         name = f"{batch.stem}-{batch.batch_ts}-run{run_index:0{batch.run_width}d}.json"
         out_path = batch.out_dir / name
         out_path.write_text(
@@ -411,7 +520,7 @@ def parse_args() -> argparse.Namespace:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("input", help="Path to the guidance document (markdown).")
+    parser.add_argument("document", help="Path to the guidance document (.docx).")
     parser.add_argument(
         "expectations", help="Path to the ground-truth expectations JSON file."
     )
@@ -425,12 +534,19 @@ def parse_args() -> argparse.Namespace:
         help=f"Max runs in flight at once (default: {DEFAULT_CONCURRENCY}).",
     )
     parser.add_argument(
-        "--host", default=DEFAULT_HOST, help=f"Service host (default: {DEFAULT_HOST})."
+        "--host",
+        default=DEFAULT_HOST,
+        help=f"Guidance backend base URL (default: {DEFAULT_HOST}).",
+    )
+    parser.add_argument(
+        "--uploader",
+        default=DEFAULT_UPLOADER,
+        help=f"CDP uploader base URL (default: {DEFAULT_UPLOADER}).",
     )
     parser.add_argument(
         "--out-dir",
         default=None,
-        help="Directory for captured run files (default: the input file's directory).",
+        help="Directory for captured run files (default: the document file's directory).",
     )
     parser.add_argument(
         "--show-reasons",
@@ -445,6 +561,23 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def validate_document(document_path: Path) -> None:
+    """Reject a missing file or one that is not a .docx (PK/zip), before uploading.
+
+    The uploader runs the file through a Word parser, so a non-.docx (e.g. markdown)
+    would only fail later as ``status=failed`` after a full upload + parse cycle.
+    """
+    if not document_path.is_file():
+        message = f"document not found: {document_path}"
+        raise SystemExit(message)
+    if document_path.read_bytes()[:2] != b"PK":
+        message = (
+            f"{document_path} is not a .docx (expected a PK/zip file); the uploader "
+            "parses Word documents, not markdown — pass the .docx, e.g. input.docx"
+        )
+        raise SystemExit(message)
+
+
 async def main() -> None:
     global _COLOUR  # noqa: PLW0603
     args = parse_args()
@@ -453,8 +586,8 @@ async def main() -> None:
         message = "--runs must be at least 1"
         raise SystemExit(message)
 
-    input_path = Path(args.input)
-    document_text = input_path.read_text(encoding="utf-8")
+    document_path = Path(args.document)
+    validate_document(document_path)
     expectations = json.loads(Path(args.expectations).read_text(encoding="utf-8"))[
         "findings"
     ]
@@ -469,9 +602,9 @@ async def main() -> None:
             "requires one"
         )
         raise SystemExit(message)
-    out_dir = Path(args.out_dir) if args.out_dir else input_path.resolve().parent
+    out_dir = Path(args.out_dir) if args.out_dir else document_path.resolve().parent
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = input_path.stem
+    stem = document_path.stem
     # One timestamp per invocation: the shared per-batch prefix that de-conflicts
     # this batch's files from any other run's.
     batch_ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -489,16 +622,20 @@ async def main() -> None:
     concurrency = max(1, min(args.concurrency, args.runs))
 
     print(
-        f"Document: {input_path.name}   Expectations: {total}   "
+        f"Document: {document_path.name}   Expectations: {total}   "
         f"Runs: {args.runs}   Concurrency: {concurrency}   Host: {args.host}"
     )
 
     started = time.perf_counter()
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_S) as client:
+        document_id = await resolve_document_id(
+            client, args.host, args.uploader, document_path
+        )
+        print(f"Document id: {document_id}")
         batch = Batch(
             client=client,
             host=args.host,
-            document_text=document_text,
+            document_id=document_id,
             expectations=expectations,
             model=model,
             out_dir=out_dir,

@@ -52,6 +52,7 @@ async def analyse_document(
                 issue=f.issue,
                 why_it_matters=f.why_it_matters,
                 severity=f.severity.value,
+                confidence=f.confidence.value,
                 recommendation=f.recommendation,
             )
             for f in result.output.findings
