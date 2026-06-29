@@ -48,9 +48,8 @@ class FindingCategory(StrEnum):
     """The publishing check that produced a finding.
 
     Must stay in sync with the category list in the active checker prompt
-    (prompts/checker_opus_rewrite_reviewed.md) — the
-    prompt defines what each category means; this enum constrains what the
-    LLM may emit.
+    loaded by checker.py — the prompt defines what each category means;
+    this enum constrains what the LLM may emit.
     """
 
     HEADINGS_AND_LAYOUT = "headings_and_layout"
