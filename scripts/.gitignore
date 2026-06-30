@@ -1,4 +1,6 @@
+*.csv
 *.docx
 *.md*
 *.json
 *.txt
+*.xlsx
