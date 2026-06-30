@@ -3,8 +3,10 @@
 import fastapi
 
 from app.critique import api_schemas, service
+from app.critique.jobs import router as jobs_router
 
 router = fastapi.APIRouter(prefix="/critique", tags=["critique"])
+router.include_router(jobs_router.router)
 
 
 @router.post("/analyse")
