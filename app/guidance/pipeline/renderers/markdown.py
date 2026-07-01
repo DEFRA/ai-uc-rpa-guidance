@@ -11,7 +11,8 @@ def _render_spans(spans: list[models.InlineSpan]) -> str:
         text = html.escape(span.text)
         if span.hyperlink:
             href = html.escape(span.hyperlink, quote=True)
-            text = f'<a href="{href}">{text}</a>'
+            link_text = text.replace("]", "\\]")
+            text = f"[{link_text}](<{href}>)"
         if span.underline:
             text = f"<u>{text}</u>"
         if span.italic:

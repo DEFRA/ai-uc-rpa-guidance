@@ -377,6 +377,74 @@ class TestParserHyperlinks:
         assert hyperlinked[0].text == "click here"
         assert hyperlinked[0].hyperlink == url
 
+    def test_hyperlink_survives_adjacent_plain_runs(self):
+        """A hyperlink-wrapped run sandwiched between plain runs must not leak onto
+        its neighbours (regression for the id()-collision bug: the hyperlink map was
+        keyed by id(run_elem), and lxml recycles proxy object ids across separate
+        element traversals, silently misattributing links to unrelated runs)."""
+        from docx.opc.constants import RELATIONSHIP_TYPE as RT
+        from docx.oxml.ns import qn
+        from lxml import etree
+
+        url = "https://example.com/guide"
+
+        doc = Document()
+        doc.add_heading("Links", level=1)
+        para = doc.add_paragraph()
+
+        para.add_run("Before text ")
+
+        r_id = para.part.rels.get_or_add_ext_rel(RT.HYPERLINK, url)
+        hyperlink_elem = etree.SubElement(para._element, qn("w:hyperlink"))
+        hyperlink_elem.set(qn("r:id"), r_id)
+        run_elem = etree.SubElement(hyperlink_elem, qn("w:r"))
+        t_elem = etree.SubElement(run_elem, qn("w:t"))
+        t_elem.text = "the linked text"
+
+        para.add_run(" after text")
+
+        tree = service.parse_doc(doc, title="AdjacentHyperlinkTest")
+
+        section = tree.children[0]
+        paras = [n for n in section.content if isinstance(n, models.ParagraphNode)]
+        assert len(paras) == 1
+        spans = paras[0].spans
+        assert len(spans) == 3
+
+        before, linked, after = spans
+        assert before.text == "Before text "
+        assert before.hyperlink == ""
+        assert linked.text == "the linked text"
+        assert linked.hyperlink == url
+        assert after.text == " after text"
+        assert after.hyperlink == ""
+
+    def test_hyperlink_anchor_internal_link(self):
+        """A w:hyperlink with only w:anchor (no r:id) is an internal document link
+        (e.g. a TOC entry or cross-reference to a bookmark) and must not be dropped."""
+        from docx.oxml.ns import qn
+        from lxml import etree
+
+        doc = Document()
+        doc.add_heading("Links", level=1)
+        para = doc.add_paragraph()
+
+        hyperlink_elem = etree.SubElement(para._element, qn("w:hyperlink"))
+        hyperlink_elem.set(qn("w:anchor"), "_Toc123456")
+        run_elem = etree.SubElement(hyperlink_elem, qn("w:r"))
+        t_elem = etree.SubElement(run_elem, qn("w:t"))
+        t_elem.text = "back to top"
+
+        tree = service.parse_doc(doc, title="AnchorLinkTest")
+
+        section = tree.children[0]
+        paras = [n for n in section.content if isinstance(n, models.ParagraphNode)]
+        assert len(paras) == 1
+        hyperlinked = [s for s in paras[0].spans if s.hyperlink]
+        assert len(hyperlinked) == 1
+        assert hyperlinked[0].text == "back to top"
+        assert hyperlinked[0].hyperlink == "#_Toc123456"
+
 
 class TestParserImageEdgeCases:
     def test_image_missing_embed_id(self, tmp_path):

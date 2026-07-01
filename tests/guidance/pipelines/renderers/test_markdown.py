@@ -179,7 +179,7 @@ class TestMarkdownInlineFormatting:
             ],
         )
         md = to_markdown(tree)
-        assert '<a href="https://example.com">here</a>' in md
+        assert "[here](<https://example.com>)" in md
 
     def _section_with_span(self, title: str, span: InlineSpan) -> DocumentTree:
         return DocumentTree(
@@ -222,7 +222,7 @@ class TestMarkdownInlineFormatting:
                 InlineSpan(text="here", bold=True, hyperlink="https://example.com"),
             )
         )
-        assert '<strong><a href="https://example.com">here</a></strong>' in md
+        assert "<strong>[here](<https://example.com>)</strong>" in md
 
     def test_italic_hyperlink_rendering(self):
         md = to_markdown(
@@ -231,7 +231,7 @@ class TestMarkdownInlineFormatting:
                 InlineSpan(text="here", italic=True, hyperlink="https://example.com"),
             )
         )
-        assert '<em><a href="https://example.com">here</a></em>' in md
+        assert "<em>[here](<https://example.com>)</em>" in md
 
     def test_bold_italic_hyperlink_rendering(self):
         md = to_markdown(
@@ -245,7 +245,7 @@ class TestMarkdownInlineFormatting:
                 ),
             )
         )
-        assert '<strong><em><a href="https://example.com">here</a></em></strong>' in md
+        assert "<strong><em>[here](<https://example.com>)</em></strong>" in md
 
     def test_underline_rendering(self):
         md = to_markdown(
@@ -280,8 +280,18 @@ class TestMarkdownInlineFormatting:
                 ],
             )
         )
-        assert f'<strong><a href="{url}">Convert an Activity</a></strong>' in md
+        assert f"<strong>[Convert an Activity](<{url}>)</strong>" in md
         assert "<strong> Case</strong>" in md
+
+    def test_hyperlink_text_with_closing_bracket_escaped(self):
+        """A ']' in link text must not prematurely close the markdown link."""
+        md = to_markdown(
+            self._section_with_span(
+                "Esc",
+                InlineSpan(text="see [note]", hyperlink="https://example.com/note"),
+            )
+        )
+        assert "[see [note\\]](<https://example.com/note>)" in md
 
     def test_mixed_formatting(self):
         """Spans with different emphasis render with the correct tags."""

@@ -126,7 +126,6 @@ class DocxParser:
         self._pending_list_items.clear()
 
     def _parse_spans(self, paragraph: Paragraph) -> list[models.InlineSpan]:
-        hyperlink_map = self._build_hyperlink_map(paragraph)
         spans: list[models.InlineSpan] = []
 
         for run_elem in paragraph._element.iter(qn("w:r")):
@@ -136,7 +135,7 @@ class DocxParser:
 
             rpr = run_elem.find(qn("w:rPr"))
             bold, italic, underline, color = self._extract_run_formatting(rpr)
-            hyperlink = hyperlink_map.get(id(run_elem), "")
+            hyperlink = self._enclosing_hyperlink_target(run_elem, paragraph)
 
             spans.append(
                 models.InlineSpan(
@@ -152,19 +151,26 @@ class DocxParser:
         return spans
 
     @staticmethod
-    def _build_hyperlink_map(paragraph: Paragraph) -> dict[int, str]:
-        hyperlink_map: dict[int, str] = {}
+    def _enclosing_hyperlink_target(run_elem: Any, paragraph: Paragraph) -> str:
+        """Return the URL/anchor of the nearest w:hyperlink ancestor of run_elem, if any.
 
-        for hyperlink_elem in paragraph._element.findall(qn("w:hyperlink")):
-            r_id = hyperlink_elem.get(qn("r:id"))
-            url = ""
-            if r_id and r_id in paragraph.part.rels:
-                url = paragraph.part.rels[r_id].target_ref
+        Resolved directly from run_elem's own ancestry rather than a separately-built
+        id()-keyed lookup table, which is unsafe: lxml element proxies are ephemeral,
+        and CPython can reuse a garbage-collected proxy's id() for an unrelated object,
+        silently misattributing or dropping hyperlinks.
+        """
+        elem = run_elem.getparent()
+        while elem is not None and elem.tag != qn("w:hyperlink"):
+            elem = elem.getparent()
+        if elem is None:
+            return ""
 
-            for run_elem in hyperlink_elem.findall(qn("w:r")):
-                hyperlink_map[id(run_elem)] = url
+        r_id = elem.get(qn("r:id"))
+        if r_id and r_id in paragraph.part.rels:
+            return str(paragraph.part.rels[r_id].target_ref)
 
-        return hyperlink_map
+        anchor = elem.get(qn("w:anchor"))
+        return f"#{anchor}" if anchor else ""
 
     @staticmethod
     def _extract_run_formatting(rpr: Any) -> tuple[bool, bool, bool, str]:
