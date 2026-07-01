@@ -20,9 +20,21 @@ See the [navigation guide](https://example.com/nav.docx) for details.
 """
 
 
+HTML_DOCUMENT = (
+    "## Decision\n\n"
+    "<strong>No</strong>, you must contact the agreement holder to query "
+    "it&#x27;s status.\n\n"
+    '<a href="https://ex/1">Navigate to the</a><a href="https://ex/1"> </a>'
+    'SFI <a href="https://ex/1">Basic Navigation</a> section.\n'
+)
+
+TYPO_DOCUMENT = "Check the ‘Link’ tab — then continue.\n"
+
+
 @dataclasses.dataclass
 class StubRunContext:
     deps: models.AgentDependencies
+    last_attempt: bool = False
 
 
 def make_deps(document_text: str = DOCUMENT) -> models.AgentDependencies:
@@ -109,6 +121,56 @@ class TestCriticQuoteValidator:
         )
 
         assert result is output
+
+    async def test_html_tags_and_entities_are_stripped_for_anchoring(self) -> None:
+        # The clean quote spans a <strong> boundary and an escaped apostrophe.
+        output = make_critique(
+            [
+                make_finding(
+                    "No, you must contact the agreement holder to query it's status."
+                )
+            ]
+        )
+
+        result = await critic.validate_quotes_are_verbatim(
+            StubRunContext(deps=make_deps(HTML_DOCUMENT)), output
+        )
+
+        assert result is output
+
+    async def test_fragmented_link_text_anchors(self) -> None:
+        # In the document this sentence is shattered across several <a> tags.
+        output = make_critique(
+            [make_finding("Navigate to the SFI Basic Navigation section.")]
+        )
+
+        result = await critic.validate_quotes_are_verbatim(
+            StubRunContext(deps=make_deps(HTML_DOCUMENT)), output
+        )
+
+        assert result is output
+
+    async def test_smart_typography_is_normalised(self) -> None:
+        # Straight quotes / hyphen quote against curly quotes / em dash source.
+        output = make_critique([make_finding("Check the 'Link' tab - then continue.")])
+
+        result = await critic.validate_quotes_are_verbatim(
+            StubRunContext(deps=make_deps(TYPO_DOCUMENT)), output
+        )
+
+        assert result is output
+
+    async def test_unanchored_findings_dropped_on_last_attempt(self) -> None:
+        anchored = make_finding("The form should be completed by the case worker")
+        unanchored = make_finding("invented text")
+        output = make_critique([anchored, unanchored])
+
+        result = await critic.validate_quotes_are_verbatim(
+            StubRunContext(deps=make_deps(), last_attempt=True), output
+        )
+
+        assert result is not output
+        assert result.findings == [anchored]
 
 
 class TestWriterPreservationValidator:
