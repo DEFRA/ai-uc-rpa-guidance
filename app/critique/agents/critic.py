@@ -1,8 +1,11 @@
 """Critic agent: reviews guidance documents against GDS and DEFRA standards."""
 
 import asyncio
+import html
 import json
 import logging
+import re
+import unicodedata
 
 import pydantic_ai
 
@@ -19,9 +22,42 @@ critic_agent = pydantic_ai.Agent(
 )
 
 
+_TAG_RE = re.compile(r"<[^>]+>")
+
+# Map common "smart" typography to ASCII so quotes still anchor when the model
+# reproduces punctuation differently from the parsed document.
+_TYPOGRAPHY = str.maketrans(
+    {
+        "‘": "'",
+        "’": "'",
+        "‚": "'",
+        "‛": "'",
+        "“": '"',
+        "”": '"',
+        "„": '"',
+        "‟": '"',
+        "–": "-",
+        "—": "-",
+        "‒": "-",
+        "−": "-",
+        "…": "...",
+    }
+)
+
+
 def _normalise(text: str) -> str:
-    """Collapse whitespace so quote matching tolerates wrapping differences."""
-    return " ".join(text.split())
+    """Normalise text for verbatim quote matching.
+
+    The document under review is HTML-laden markdown (inline <a>/<strong> tags,
+    escaped entities) and uses smart punctuation, while the model quotes clean
+    prose. Strip tags, unescape entities, and fold typography, case and
+    whitespace so a genuine quote anchors despite these differences.
+    """
+    text = _TAG_RE.sub("", text)
+    text = html.unescape(text)
+    text = unicodedata.normalize("NFKC", text)
+    text = text.translate(_TYPOGRAPHY)
+    return " ".join(text.split()).casefold()
 
 
 @critic_agent.output_validator
@@ -29,36 +65,44 @@ async def validate_quotes_are_verbatim(
     ctx: pydantic_ai.RunContext[models.AgentDependencies],
     output: models.CritiqueOutput,
 ) -> models.CritiqueOutput:
-    """Reject findings whose quote cannot be found in the document.
+    """Anchor every finding to real document text.
 
-    Anchors every finding to real document text; the model is asked to retry
-    with corrected quotes (or to drop findings it cannot anchor).
+    On earlier attempts the model is asked to retry with corrected quotes. On
+    the final attempt any still-unanchored findings are dropped rather than
+    failing the whole review, so a single stray quote can't sink the job.
     """
     document = _normalise(ctx.deps.document_text)
-    unanchored = [
-        finding
-        for finding in output.findings
-        if _normalise(finding.quote) not in document
-    ]
+    anchored: list[models.CritiqueFinding] = []
+    unanchored: list[models.CritiqueFinding] = []
+    for finding in output.findings:
+        bucket = anchored if _normalise(finding.quote) in document else unanchored
+        bucket.append(finding)
 
-    if unanchored:
-        details = "\n".join(
-            f"- {finding.rule_reference} @ {finding.where}: {finding.quote[:120]!r}"
-            for finding in unanchored
-        )
-        logger.info(
-            "[Critique] Critic output rejected: %d unanchored quotes", len(unanchored)
-        )
-        msg = (
-            "Each finding's `quote` must be copied verbatim from the document "
-            "under review. The following quotes were not found in the document:\n"
-            f"{details}\n"
-            "Correct each quote to an exact excerpt, or drop any finding you "
-            "cannot anchor to the document text."
-        )
-        raise pydantic_ai.ModelRetry(msg)
+    if not unanchored:
+        return output
 
-    return output
+    if ctx.last_attempt:
+        logger.warning(
+            "[Critique] Dropping %d unanchored finding(s) on final attempt",
+            len(unanchored),
+        )
+        return output.model_copy(update={"findings": anchored})
+
+    details = "\n".join(
+        f"- {finding.rule_reference} @ {finding.where}: {finding.quote[:120]!r}"
+        for finding in unanchored
+    )
+    logger.info(
+        "[Critique] Critic output rejected: %d unanchored quotes", len(unanchored)
+    )
+    msg = (
+        "Each finding's `quote` must be copied verbatim from the document "
+        "under review. The following quotes were not found in the document:\n"
+        f"{details}\n"
+        "Correct each quote to an exact excerpt, or drop any finding you "
+        "cannot anchor to the document text."
+    )
+    raise pydantic_ai.ModelRetry(msg)
 
 
 # The reference-document catalogues are inlined into the instructions so the
