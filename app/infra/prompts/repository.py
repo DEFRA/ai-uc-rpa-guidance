@@ -33,7 +33,7 @@ class FileSystem:
 
     async def read_file(self, path: str) -> str:
         """Asynchronously read a file's contents."""
-        async with aiofiles.open(path) as f:
+        async with aiofiles.open(path, encoding="utf-8") as f:
             return str(await f.read()).strip()
 
 
