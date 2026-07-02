@@ -1,10 +1,12 @@
-"""Black-box client for the publishing service: upload a document and analyse it.
+"""Black-box client for the checker services: upload a document and analyse it.
 
 Shared by the evaluation and stability harnesses to drive the live HTTP flow (the
-same public contract ``scripts/publishing.sh`` uses, no app internals): upload the
-.docx once, then submit it for analysis and poll the job to completion — as many
-times as the caller needs. ``generate_runs`` does exactly that N times and writes
-each result to a JSON file.
+same public contract ``scripts/publishing.sh`` / ``scripts/critique.sh`` use, no
+app internals): upload the .docx once, then submit it to a checker's jobs API and
+poll the job to completion — as many times as the caller needs. Publishing and
+critique share the job contract, differing only in paths and timeout (publishing's
+are the defaults). ``generate_runs`` does exactly that N times and writes each
+result to a JSON file.
 """
 
 import asyncio

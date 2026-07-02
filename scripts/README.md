@@ -249,7 +249,8 @@ uv run scripts/publishing_stability.py \
   judge, and the same-problem cut-off for clustering.
 - `--concurrency` (judge LLM calls) and `--run-concurrency` (analyses in
   flight when generating) are separate controls.
-- `--match-report` — also write an Excel workbook laying each issue out with
+- `--match-report` — also write an Excel workbook
+  (`<doc-stem>-publishing-match-report-<utc>.xlsx`) laying each issue out with
   every run's wording of it side by side in the order in which the findings
   occur in the document under review. This provides a clear visual
   representation to what degree findings are common across successive runs.
@@ -366,7 +367,8 @@ critique idiosyncrasies as `critique_evaluate.py`:
   partition: pairing, judging, clustering and reporting all happen within a
   single standard's findings — a gds finding is never compared with a
   defra_style one. The stdout report has one section per standard, and the
-  `--match-report` workbook one worksheet per standard.
+  `--match-report` workbook (`<doc-stem>-critique-match-report-<utc>.xlsx`)
+  one worksheet per standard.
 - **`where`, not `section`.** A critique finding's free-text `where` may name
   several sections — or none ("throughout"). Where the evaluation script
   expands a finding into one candidate per section (its expectations each

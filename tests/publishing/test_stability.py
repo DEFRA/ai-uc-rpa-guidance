@@ -368,23 +368,27 @@ def test_match_report_rows_joins_repeated_run_findings() -> None:
 def test_match_report_path_recovers_input_stem_from_run_file() -> None:
     """With RUN_FILEs the stem drops the batch/run suffix; default dir is the input's."""
     paths = [Path("/runs/input-publishing-20260626T064742Z-run01.json")]
-    path = common.match_report_path(None, None, paths, stability._RUN_FILE_SUFFIX)
+    path = common.match_report_path(
+        None, None, paths, stability._RUN_FILE_SUFFIX, "publishing"
+    )
     assert path.parent == Path("/runs")
-    assert path.name.startswith("input-match-report-")
+    assert path.name.startswith("input-publishing-match-report-")
     assert path.suffix == ".xlsx"
 
 
 def test_match_report_path_accepts_pre_infix_run_files() -> None:
     """Captures named before the checker infix existed still strip to the stem."""
     paths = [Path("/runs/input-20260626T064742Z-run01.json")]
-    path = common.match_report_path(None, None, paths, stability._RUN_FILE_SUFFIX)
-    assert path.name.startswith("input-match-report-")
+    path = common.match_report_path(
+        None, None, paths, stability._RUN_FILE_SUFFIX, "publishing"
+    )
+    assert path.name.startswith("input-publishing-match-report-")
 
 
 def test_match_report_path_uses_document_stem_when_generating() -> None:
     """With --document the report is named for the document and written to --out-dir."""
     path = common.match_report_path(
-        "some/input.docx", "/out", [], stability._RUN_FILE_SUFFIX
+        "some/input.docx", "/out", [], stability._RUN_FILE_SUFFIX, "publishing"
     )
     assert path.parent == Path("/out")
-    assert path.name.startswith("input-match-report-")
+    assert path.name.startswith("input-publishing-match-report-")

@@ -35,7 +35,7 @@ def _finding(
     severity: str = "medium",
     rule_reference: str = "bold",
 ) -> stability.Finding:
-    from scripts.publishing_common import extract_section_numbers
+    from scripts.evaluations_common import extract_section_numbers
 
     return stability.Finding(
         run=run,
@@ -254,7 +254,9 @@ def test_match_report_rows_lays_runs_side_by_side_per_standard() -> None:
 
 def test_match_report_path_strips_critique_suffix() -> None:
     paths = [Path("/runs/input-critique-20260702T162435Z-run01.json")]
-    path = common.match_report_path(None, None, paths, stability._RUN_FILE_SUFFIX)
+    path = common.match_report_path(
+        None, None, paths, stability._RUN_FILE_SUFFIX, "critique"
+    )
     assert path.parent == Path("/runs")
-    assert path.name.startswith("input-match-report-")
+    assert path.name.startswith("input-critique-match-report-")
     assert path.suffix == ".xlsx"

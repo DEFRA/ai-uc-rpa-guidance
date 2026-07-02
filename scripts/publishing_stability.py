@@ -51,11 +51,11 @@ from dotenv import find_dotenv, load_dotenv
 
 from app.publishing.models import FindingCategory
 from scripts.console import dim, set_colour
-from scripts.publishing_common import extract_section_number, issue_jaccard
-from scripts.publishing_runs import (
+from scripts.evaluations_common import extract_section_number, issue_jaccard
+from scripts.evaluations_runs import (
     DEFAULT_CONCURRENCY as DEFAULT_RUN_CONCURRENCY,
 )
-from scripts.publishing_runs import (
+from scripts.evaluations_runs import (
     DEFAULT_HOST,
     DEFAULT_UPLOADER,
     generate_runs,
@@ -430,7 +430,8 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "Also write a per-run match report Excel workbook "
-            "(<input>-match-report-<ts>.xlsx) to --out-dir or the input's directory."
+            "(<input>-publishing-match-report-<ts>.xlsx) to --out-dir or the "
+            "input's directory."
         ),
     )
     parser.add_argument(
@@ -535,7 +536,9 @@ async def main() -> None:
     )
     print_report(report)
     if args.match_report:
-        path = match_report_path(args.document, args.out_dir, paths, _RUN_FILE_SUFFIX)
+        path = match_report_path(
+            args.document, args.out_dir, paths, _RUN_FILE_SUFFIX, "publishing"
+        )
         write_match_report(report, path)
         progress(f"wrote match report {path}")
 

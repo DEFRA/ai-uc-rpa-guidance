@@ -25,7 +25,7 @@ import pydantic_ai
 from pydantic_ai.settings import ModelSettings
 
 from scripts.console import dim, green, red, yellow
-from scripts.publishing_common import issue_jaccard
+from scripts.evaluations_common import issue_jaccard
 
 # A judge: given two issue texts, score 0.0-1.0 how much they are the same problem.
 JudgeFn = Callable[[str, str], Awaitable[float]]
@@ -255,12 +255,15 @@ def match_report_path(
     out_dir: str | None,
     paths: list[Path],
     run_file_suffix: re.Pattern[str],
+    checker: str,
 ) -> Path:
-    """Where to write the match report: '<input>-match-report-<timestamp>.xlsx'.
+    """Where to write the match report: '<input>-<checker>-match-report-<ts>.xlsx'.
 
-    Written to ``out_dir``, or the input's own directory when that is unset: the
-    document's for --document, otherwise the run files'. The input stem is the document
-    name, otherwise recovered from the first run file by stripping its batch/run suffix
+    The checker infix keeps one checker's reports distinguishable from another's
+    for the same document, matching the run captures' naming. Written to
+    ``out_dir``, or the input's own directory when that is unset: the document's
+    for --document, otherwise the run files'. The input stem is the document name,
+    otherwise recovered from the first run file by stripping its batch/run suffix
     (``run_file_suffix``, checker-specific).
     """
     if document is not None:
@@ -272,7 +275,7 @@ def match_report_path(
         stem = run_file_suffix.sub("", paths[0].stem)
     directory = Path(out_dir) if out_dir else default_dir
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    return directory / f"{stem}-match-report-{timestamp}.xlsx"
+    return directory / f"{stem}-{checker}-match-report-{timestamp}.xlsx"
 
 
 def write_match_sheet(

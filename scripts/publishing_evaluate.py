@@ -56,12 +56,12 @@ from scripts.console import (
     red,
     set_colour,
 )
-from scripts.publishing_common import (
+from scripts.evaluations_common import (
     extract_section_number,
     issue_jaccard,
     severity_rank,
 )
-from scripts.publishing_runs import (
+from scripts.evaluations_runs import (
     DEFAULT_CONCURRENCY,
     DEFAULT_HOST,
     DEFAULT_UPLOADER,
