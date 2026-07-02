@@ -23,13 +23,13 @@ Pipeline:
 
 Usage:
   # Compare captured run files:
-  uv run --env-file .env python -m scripts.publishing_stability \
+  uv run scripts/publishing_stability.py \
       run01.json run02.json run03.json [--exclude-categories links] \
       [--low F] [--high F] [--threshold F] [--concurrency N]
 
   # Or generate the runs first (needs the publishing service running):
-  uv run --env-file .env python -m scripts.publishing_stability \
-      --document input.docx --runs 10 [--run-concurrency N] [--concurrency N]
+  uv run scripts/publishing_stability.py \
+      --document input.docx [--runs N] [--run-concurrency N] [--concurrency N]
 
 Each input is an analyse response (or captured run file) with a ``findings`` list.
 Run generation and the stability comparison have separate concurrency controls:
@@ -83,6 +83,8 @@ DEFAULT_THRESHOLD = 0.5
 # Max judge (LLM) calls in flight at once. 1 = sequential. The unit bounded is the
 # pairwise comparison; raising it parallelises the judging within each section block.
 DEFAULT_CONCURRENCY = 1
+# Runs to generate from --document when --runs is not given.
+DEFAULT_RUNS = 5
 
 # Judge-call resilience. Bedrock throttling (ThrottlingException) is retried by
 # boto3 internally with backoff, so it surfaces as slow calls rather than errors;
@@ -709,7 +711,10 @@ def parse_args() -> argparse.Namespace:
         "--runs",
         type=int,
         default=None,
-        help="Number of runs to generate from --document (two or more).",
+        help=(
+            "Number of runs to generate from --document, two or more "
+            f"(default: {DEFAULT_RUNS})."
+        ),
     )
     parser.add_argument(
         "--run-concurrency",
@@ -791,7 +796,8 @@ async def _generate_run_files(args: argparse.Namespace) -> list[Path]:
     if args.run_files:
         message = "pass RUN_FILEs or --document, not both"
         raise SystemExit(message)
-    if args.runs is None or args.runs < 2:
+    runs = args.runs if args.runs is not None else DEFAULT_RUNS
+    if runs < 2:
         message = "--runs must be at least 2 when generating from --document"
         raise SystemExit(message)
     if args.run_concurrency < 1:
@@ -800,12 +806,12 @@ async def _generate_run_files(args: argparse.Namespace) -> list[Path]:
     document = Path(args.document)
     out_dir = Path(args.out_dir) if args.out_dir else document.resolve().parent
     _progress(
-        f"generating {args.runs} runs from {document.name} "
+        f"generating {runs} runs from {document.name} "
         f"(run-concurrency {args.run_concurrency})"
     )
     return await generate_runs(
         document,
-        runs=args.runs,
+        runs=runs,
         concurrency=args.run_concurrency,
         host=args.host,
         uploader=args.uploader,
