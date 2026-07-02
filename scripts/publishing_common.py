@@ -27,6 +27,15 @@ def extract_section_number(section: str) -> str | None:
     return match.group(0) if match else None
 
 
+def extract_section_numbers(section: str) -> list[str]:
+    """Every numeric section token in a reference, deduplicated, in order of appearance.
+
+    A location like 'Sections 3.2 and 5.1' names more than one section; each token is
+    a distinct place the finding applies to.
+    """
+    return list(dict.fromkeys(_SECTION_NUMBER_PATTERN.findall(section)))
+
+
 def issue_terms(text: str) -> set[str]:
     """Comparable terms of an issue: hyperlinks kept whole, other words lower-cased.
 

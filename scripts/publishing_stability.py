@@ -484,9 +484,10 @@ def print_report(report: StabilityReport) -> None:
         )
 
 
-# Trailing "-<batch timestamp>-runNN" tail that generate_runs appends to the input
-# stem; stripped to recover the original document name for the report filename.
-_RUN_FILE_SUFFIX = re.compile(r"-\d{8}T\d{6}Z-run\d+$")
+# Trailing "-publishing-<batch timestamp>-runNN" tail that generate_runs appends to
+# the input stem (the checker infix is optional so pre-infix captures still work);
+# stripped to recover the original document name for the report filename.
+_RUN_FILE_SUFFIX = re.compile(r"(?:-publishing)?-\d{8}T\d{6}Z-run\d+$")
 
 
 def match_fraction(cluster: Cluster, n_runs: int) -> str:

@@ -22,6 +22,7 @@ import httpx
 DOCUMENTS_PATH = "/guidance/documents/"
 ANALYSE_PATH = "/publishing/analyse"
 JOBS_PATH = "/publishing/jobs"
+CRITIQUE_JOBS_PATH = "/critique/jobs"
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 DEFAULT_HOST = "http://localhost:8085"
 DEFAULT_UPLOADER = "http://localhost:7337"
@@ -30,6 +31,18 @@ REQUEST_TIMEOUT_S = 600.0
 PARSE_TIMEOUT_S = 180.0
 ANALYSE_TIMEOUT_S = 600.0
 POLL_INTERVAL_S = 2.0
+
+
+def capture_name(
+    stem: str, checker: str, batch_ts: str, run_index: int, run_width: int
+) -> str:
+    """The capture filename for one run: ``<stem>-<checker>-<batch-utc>-runNN.json``.
+
+    The checker infix keeps one checker's captures distinguishable from another's
+    for the same document; the shared batch timestamp keeps one invocation's files
+    together, never overwriting a prior batch, sorting chronologically.
+    """
+    return f"{stem}-{checker}-{batch_ts}-run{run_index:0{run_width}d}.json"
 
 
 def content_hash(path: Path) -> str:
@@ -128,22 +141,28 @@ async def resolve_document_id(
 
 
 async def analyse_document(
-    client: httpx.AsyncClient, host: str, document_id: str
+    client: httpx.AsyncClient,
+    host: str,
+    document_id: str,
+    *,
+    submit_path: str = ANALYSE_PATH,
+    jobs_path: str = JOBS_PATH,
+    timeout_s: float = ANALYSE_TIMEOUT_S,
 ) -> dict[str, Any]:
-    """Run one analysis to completion and return its result (with ``findings``).
+    """Run one analysis to completion and return its result.
 
     Submits the document, then polls the job until it completes; raises if the
-    job errors or does not finish within the analysis timeout.
+    job errors or does not finish within the analysis timeout. The publishing
+    and critique checkers share this job contract and differ only in the paths
+    (and how long a run may take), so both are driven through here.
     """
-    submit = await client.post(
-        f"{host}{ANALYSE_PATH}", json={"documentId": document_id}
-    )
+    submit = await client.post(f"{host}{submit_path}", json={"documentId": document_id})
     submit.raise_for_status()
     job_id = submit.json()["jobId"]
 
-    deadline = time.monotonic() + ANALYSE_TIMEOUT_S
+    deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        poll = await client.get(f"{host}{JOBS_PATH}/{job_id}")
+        poll = await client.get(f"{host}{jobs_path}/{job_id}")
         poll.raise_for_status()
         job = poll.json()
         status = job.get("status")
@@ -188,7 +207,9 @@ async def generate_runs(
             nonlocal completed
             async with semaphore:
                 data = await analyse_document(client, host, document_id)
-            name = f"{document_path.stem}-{batch_ts}-run{index:0{run_width}d}.json"
+            name = capture_name(
+                document_path.stem, "publishing", batch_ts, index, run_width
+            )
             path = out_dir / name
             path.write_text(
                 json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
