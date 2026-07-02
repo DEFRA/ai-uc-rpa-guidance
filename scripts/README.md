@@ -177,7 +177,9 @@ uv run scripts/publishing_stability.py \
 - `--concurrency` (judge LLM calls) and `--run-concurrency` (analyses in
   flight when generating) are separate controls.
 - `--match-report` — also write an Excel workbook laying each issue out with
-  every run's wording of it side by side.
+  every run's wording of it side by side in the order in which the findings
+  occur in the document under review. This provides a clear visual
+  representation to what degree findings are common across successive runs.
 
 ## Notes
 
