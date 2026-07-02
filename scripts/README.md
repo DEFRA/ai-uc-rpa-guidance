@@ -71,15 +71,17 @@ failed expectation explains how close the checker came.
 
 Ground truth has to be farmed by hand. Two routes:
 
-**From a verified candidate run.** Run the frontend and backend, upload the
-document, and trigger a publish run from the UI. Then:
+**From a verified candidate run.** Run the frontend and backend using docker from
+the parent development project.
 
-1. Find the document's id: [http://localhost:8085/guidance/documents/](http://localhost:8085/guidance/documents/)
+1. Upload a RPA guidance document for publishing review at [http://localhost:3000/guidance-documents](http://localhost:3000/guidance-documents).
+2. Run the publishing check from [http://localhost:3000/publishing-checks/start](http://localhost:3000/publishing-checks/start).
+3. Find the document's id: [http://localhost:8085/guidance/documents/](http://localhost:8085/guidance/documents/)
    returns a JSON listing whose items each carry the document `id`.
-2. Once the publish run has completed, fetch its findings in JSON form from
+4. Once the publish run has completed, fetch its findings in JSON form from
    [http://localhost:8085/publishing/documents/{documentId}/analysis](http://localhost:8085/publishing/documents/{documentId}/analysis).
-3. Manually verify which findings are acceptable ground truth, and copy those
-   payloads into the expectations file.
+5. Manually verify which findings are acceptable ground truth, and copy those
+   payloads into the expectations file, say `expectations.json`.
 
 **Hand-authored.** Write the findings directly, in the same shape.
 
@@ -129,7 +131,10 @@ uv run scripts/publishing_evaluate.py \
 Each run's raw analysis response is captured as
 `<doc-stem>-<batch-utc>-runNN.json`; every file of one invocation shares the
 batch timestamp, so batches never overwrite each other and sort
-chronologically. These captures are valid inputs to `publishing_stability.py`.
+chronologically. These captures are valid inputs to `publishing_stability.py`
+(one batch per invocation) should you wish to evaluate the batch for stability.
+Note that `publishing_stability.py` can execute a batch of runs against a
+specified document itself, independent of `publishing_evaluate.py`.
 
 ## `publishing_stability.py` — run-to-run reproducibility
 
@@ -144,12 +149,18 @@ one distinct issue; its support (the number of runs it appeared in) drives the
 report: a per-issue consistency table, a support histogram, and a pairwise
 soft-Dice agreement score between runs.
 
-Compare previously captured run files:
+Compare previously captured run files. The files of one evaluation batch all
+share the `<doc-stem>-<batch-utc>` prefix, so globbing on that prefix selects
+exactly that batch's runs:
 
 ```bash
 uv run scripts/publishing_stability.py \
-    scripts/input-<timestamp>-run*.json [--match-report]
+    scripts/<doc-stem>-<batch-utc>-run*.json [--match-report]
 ```
+
+Pass one batch at a time: run numbers restart at `run01` in every batch, and
+the script identifies runs by that number, so use a common prefix from a run
+batch to ensure matching files are used in the stability check.
 
 Or generate fresh runs first (needs the stack running):
 
