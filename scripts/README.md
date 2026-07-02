@@ -74,10 +74,10 @@ Ground truth has to be farmed by hand. Two routes:
 **From a verified candidate run.** Run the frontend and backend, upload the
 document, and trigger a publish run from the UI. Then:
 
-1. Find the document's id: `GET http://localhost:8085/guidance/documents/`
+1. Find the document's id: [http://localhost:8085/guidance/documents/](http://localhost:8085/guidance/documents/)
    returns a JSON listing whose items each carry the document `id`.
 2. Once the publish run has completed, fetch its findings in JSON form from
-   `GET http://localhost:8085/publishing/documents/{documentId}/analysis`.
+   [http://localhost:8085/publishing/documents/{documentId}/analysis](http://localhost:8085/publishing/documents/{documentId}/analysis).
 3. Manually verify which findings are acceptable ground truth, and copy those
    payloads into the expectations file.
 
