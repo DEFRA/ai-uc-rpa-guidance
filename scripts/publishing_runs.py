@@ -30,6 +30,9 @@ DEFAULT_CONCURRENCY = 5
 REQUEST_TIMEOUT_S = 600.0
 PARSE_TIMEOUT_S = 180.0
 ANALYSE_TIMEOUT_S = 600.0
+# A critique run iterates the document for minutes; the analyse timeout is far too
+# tight for it.
+CRITIQUE_TIMEOUT_S = 1800.0
 POLL_INTERVAL_S = 2.0
 
 
@@ -184,14 +187,20 @@ async def generate_runs(
     host: str,
     uploader: str,
     out_dir: Path,
+    checker: str = "publishing",
+    submit_path: str = ANALYSE_PATH,
+    jobs_path: str = JOBS_PATH,
+    timeout_s: float = ANALYSE_TIMEOUT_S,
     on_run: Callable[[int, int], None] | None = None,
 ) -> list[Path]:
     """Analyse ``document_path`` ``runs`` times, writing each result to a JSON file.
 
     The document is uploaded/resolved once; the analyses then run with at most
     ``concurrency`` in flight. Files share one batch timestamp prefix and sort
-    chronologically, matching ``publishing_evaluate``'s capture naming. ``on_run`` (if
-    given) is called as each run completes, with (completed, total).
+    chronologically, matching the evaluate scripts' capture naming; ``checker``
+    is the filename infix. ``submit_path``/``jobs_path``/``timeout_s`` select the
+    checker driven (defaults: publishing). ``on_run`` (if given) is called as each
+    run completes, with (completed, total).
     """
     validate_document(document_path)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -206,10 +215,15 @@ async def generate_runs(
         async def capture(index: int) -> Path:
             nonlocal completed
             async with semaphore:
-                data = await analyse_document(client, host, document_id)
-            name = capture_name(
-                document_path.stem, "publishing", batch_ts, index, run_width
-            )
+                data = await analyse_document(
+                    client,
+                    host,
+                    document_id,
+                    submit_path=submit_path,
+                    jobs_path=jobs_path,
+                    timeout_s=timeout_s,
+                )
+            name = capture_name(document_path.stem, checker, batch_ts, index, run_width)
             path = out_dir / name
             path.write_text(
                 json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"

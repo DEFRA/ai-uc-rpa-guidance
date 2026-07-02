@@ -38,8 +38,8 @@ def client_with_mocks(
 ) -> fastapi.testclient.TestClient:
     """Create a test client with mocked guidance service."""
     test_app = app.entrypoints.fastapi.app
-    test_app.dependency_overrides[guidance_dependencies.get_guidance_service] = (
-        lambda: (mock_guidance_service)
+    test_app.dependency_overrides[guidance_dependencies.get_guidance_service] = lambda: (
+        mock_guidance_service
     )
     return fastapi.testclient.TestClient(test_app)
 

@@ -74,6 +74,7 @@ from scripts.publishing_common import (
 )
 from scripts.publishing_runs import (
     CRITIQUE_JOBS_PATH,
+    CRITIQUE_TIMEOUT_S,
     DEFAULT_CONCURRENCY,
     DEFAULT_HOST,
     DEFAULT_UPLOADER,
@@ -85,7 +86,6 @@ from scripts.publishing_runs import (
 )
 
 STANDARDS = ("gds", "defra_style")
-CRITIQUE_TIMEOUT_S = 1800.0
 
 WHAT_RUBRIC = (
     "EXPECTED is a style/content divergence identified by a human reviewer. "

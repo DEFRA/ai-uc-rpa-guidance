@@ -11,10 +11,13 @@ internals.
   reproducibility across N runs (no ground truth).
 - `critique_evaluate.py` — score the critique checker's findings against a
   ground-truth expectations file.
+- `critique_stability.py` — measure the critique checker's run-to-run
+  reproducibility across N runs (no ground truth).
 
 Each evaluation script has its own expectations file format, so name the
 files per checker: `publishing-expectations.json`,
-`critique-expectations.json`.
+`critique-expectations.json`. The two stability scripts share their engine
+(judging, clustering, reporting) via `stability_common.py`.
 
 ## Prerequisites: the environment under test
 
@@ -352,6 +355,117 @@ Per-expectation match rate across runs:
 
 Overall: mean matches 2.00/2   mean what correctness 0.717
 Timing: elapsed 216.6s   mean per run 139.2s   (3 runs, concurrency 3)
+```
+
+## `critique_stability.py` — critique run-to-run reproducibility
+
+The critique analogue of `publishing_stability.py`, honouring the same two
+critique idiosyncrasies as `critique_evaluate.py`:
+
+- **Two report sections.** The standards (`gds`, `defra_style`) are a hard
+  partition: pairing, judging, clustering and reporting all happen within a
+  single standard's findings — a gds finding is never compared with a
+  defra_style one. The stdout report has one section per standard, and the
+  `--match-report` workbook one worksheet per standard.
+- **`where`, not `section`.** A critique finding's free-text `where` may name
+  several sections — or none ("throughout"). Where the evaluation script
+  expands a finding into one candidate per section (its expectations each
+  target a single section), stability keeps each finding as **one node** so a
+  broad finding still counts as one distinct issue: two findings are candidate
+  matches when their section-number sets *intersect*, and a number-less
+  finding is a wildcard that may pair with anything in its standard.
+
+Candidate pairs are then scored exactly as for publishing — lexical jaccard on
+the `what` texts settles the clear cases, the LLM judge decides the ambiguous
+middle band — and connected components become the distinct issues, reported
+per standard with the same support histogram, per-issue consistency table and
+pairwise soft-Dice agreement.
+
+Compare previously captured run files (one batch at a time, as for
+publishing):
+
+```bash
+uv run scripts/critique_stability.py \
+    scripts/<doc-stem>-critique-<batch-utc>-run*.json [--match-report]
+```
+
+Or generate fresh runs first (needs the stack running; critique runs take a
+few minutes each):
+
+```bash
+uv run scripts/critique_stability.py \
+    --document scripts/input.docx
+```
+
+Flags match `publishing_stability.py` (`--runs`, `--run-concurrency`,
+`--low`/`--high`/`--threshold`, `--concurrency`, `--match-report`,
+`--no-colour`), except that `--exclude-categories` (a publishing concept) is
+replaced by `--standards`, e.g. `--standards gds` to compare a single
+standard's reports only.
+
+In the report, a cluster is located by the union of its members' section
+numbers (`§2,3,4`), or by its `where` text when no member names a number; the
+bracketed columns are the rule references and severities seen across the
+cluster's members.
+
+Example:
+
+```bash
+$ uv run ./critique_stability.py input-critique-20260702T162435Z-*
+[stability] standard 1/2: gds (44 findings, 230 candidate pairs) — 0 judge calls so far
+[stability] standard 2/2: defra_style (4 findings, 3 candidate pairs) — 65 judge calls so far
+Runs: 3
+  run01: gds 15, defra_style 1 findings
+  run02: gds 15, defra_style 2 findings
+  run03: gds 14, defra_style 1 findings
+
+=== gds ===
+Pairwise agreement (soft Dice over 3 run pairs): mean 0.475   sd 0.082   min 0.370
+Distinct issues: 27   in all 3 runs: 5
+  in 3/3 runs: 5
+  in 2/3 runs: 5
+  in 1/3 runs: 17
+Per-issue consistency (most stable first):
+  3/3  §1,3,4,4.2,5,5.1,5.2,7.1,7.4,8  [abbreviations, acronyms and initialisms]  [high, medium]  Several abbreviations are …
+  3/3  §2,3,4,4.1,4.1.1,4.2,4.3,5,5.1,5.1.1,5.2,6,7,7.1,7.2,7.4,8,9,10,10.1  [bold]  [high, medium]  Bold is used …
+  3/3  §4,4.3.1.2,5.2,7,7.1,7.2,7.4,8  [Capitalisation]  [low, medium]  'Land Manager' is …
+  3/3  §4  [Capitalisation]  [low, medium]  Block capitals are …
+  3/3  §6  [Use clear language]  [high]  A sentence in …
+  2/3  §4.2,5.1,5.1.1  [Use clear language]  [low]  'Select on' is …
+  2/3  §4.3,5.2  [Words to avoid]  [low]  'in order to' …
+  2/3  §5.1  [Use clear language]  [medium]  Section 5.1 begins …
+  2/3  §5.2  [Use clear language]  [medium]  The phrase 'No, …
+  2/3  §7.2,925  [Use clear language]  [high]  A typographical error …
+  1/3  §1  [Use clear language]  [low]  The opening sentence …
+  1/3  §2,5.1.1  [Use clear language]  [high]  A sentence in …
+  1/3  §2  [Bullet points and steps]  [medium]  The bullet list …
+  1/3  §2,7,9  [Capitalisation]  [medium]  Section headings use …
+  1/3  §2  [Bullet points and steps]  [medium]  A bullet in …
+  1/3  §4,5.2  [Bullet points and steps]  [low]  Several bullet lists …
+  1/3  §4  [Bullet points and steps]  [low]  A bullet list …
+  1/3  §4.1.1  [Capitalisation]  [low]  'Team Leader' is …
+  1/3  §4.1.1  [Bullet points and steps]  [medium]  The document uses …
+  1/3  §5.2  [Use clear language]  [high]  A phrase is …
+  1/3  §5.2  [Bullet points and steps]  [medium]  Multiple bullet lists …
+  1/3  §5.2  [Use clear language]  [high]  A sentence in …
+  1/3  §5.2  [eg, etc and ie]  [low]  The abbreviation 'eg' …
+  1/3  §5.2  [Bullet points and steps]  [medium]  A bullet in …
+  1/3  §6  [Bullet points and steps]  [low]  A bullet in …
+  1/3  §7.2  [Use clear language]  [high]  'Cast Type' is …
+  1/3  §8  [Words to avoid]  [low]  'utilise' is used …
+
+=== defra_style ===
+Pairwise agreement (soft Dice over 3 run pairs): mean 0.778   sd 0.157   min 0.667
+Distinct issues: 2   in all 3 runs: 1
+  in 3/3 runs: 1
+  in 2/3 runs: 0
+  in 1/3 runs: 1
+Per-issue consistency (most stable first):
+  3/3  §1,3,6  [Defra style guide — S: single business …]  [medium]  'SBI' is used …
+  1/3  §4  [site visits]  [medium]  The document uses …
+
+Overall: distinct issues 29   pairwise agreement mean 0.500
+Judge tokens over 68 calls: 58346 in, 9352 out (67698 total)
 ```
 
 ## Notes
