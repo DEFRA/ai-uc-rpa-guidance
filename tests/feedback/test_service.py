@@ -98,10 +98,11 @@ class TestCreateFeedback:
         self,
     ) -> None:
         svc = _make_service(snapshot=None)
+        job_id = uuid.uuid4()
 
         with pytest.raises(service.JobNotFoundError):
             await svc.create_feedback(
-                job_id=uuid.uuid4(),
+                job_id=job_id,
                 agent=models.AgentName.CHECKER,
                 finding_index=None,
                 verdict=models.FeedbackVerdict.FIX,
@@ -112,10 +113,11 @@ class TestCreateFeedback:
         self,
     ) -> None:
         svc = _make_service(snapshot=None)
+        job_id = uuid.uuid4()
 
         with pytest.raises(service.FindingNotFoundError):
             await svc.create_feedback(
-                job_id=uuid.uuid4(),
+                job_id=job_id,
                 agent=models.AgentName.CHECKER,
                 finding_index=5,
                 verdict=models.FeedbackVerdict.FIX,
@@ -125,10 +127,11 @@ class TestCreateFeedback:
     async def test_raises_already_exists_when_feedback_present(self) -> None:
         existing = _make_entry()
         svc = _make_service(existing_feedback=existing)
+        job_id = uuid.uuid4()
 
         with pytest.raises(service.FeedbackAlreadyExistsError):
             await svc.create_feedback(
-                job_id=uuid.uuid4(),
+                job_id=job_id,
                 agent=models.AgentName.CHECKER,
                 finding_index=0,
                 verdict=models.FeedbackVerdict.FIX,
@@ -138,10 +141,11 @@ class TestCreateFeedback:
     async def test_raises_already_exists_for_job_level_duplicate(self) -> None:
         existing = _make_entry(finding_index=None)
         svc = _make_service(existing_feedback=existing)
+        job_id = uuid.uuid4()
 
         with pytest.raises(service.FeedbackAlreadyExistsError):
             await svc.create_feedback(
-                job_id=uuid.uuid4(),
+                job_id=job_id,
                 agent=models.AgentName.CHECKER,
                 finding_index=None,
                 verdict=models.FeedbackVerdict.WONT_FIX,
@@ -246,10 +250,11 @@ class TestUpdateFeedback:
 
     async def test_raises_not_found_when_repo_returns_none(self) -> None:
         svc = _make_service(updated_entry=None)
+        feedback_id = uuid.uuid4()
 
         with pytest.raises(service.FeedbackNotFoundError):
             await svc.update_feedback(
-                feedback_id=uuid.uuid4(),
+                feedback_id=feedback_id,
                 verdict=models.FeedbackVerdict.FIX,
                 comment=None,
             )
