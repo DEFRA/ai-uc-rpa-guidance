@@ -81,6 +81,7 @@ test = "uv run task lint && uv run task typecheck && uv run coverage run -m pyte
 minversion = "7.0"
 testpaths = ["tests"]
 asyncio_mode = "auto"
+addopts = "--import-mode=importlib"
 
 [tool.mypy]
 python_version = "3.14"
