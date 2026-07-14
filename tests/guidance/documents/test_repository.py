@@ -28,7 +28,7 @@ async def mongo_db(
     db = client["test_guidance"]
     yield db
     await client.drop_database("test_guidance")
-    client.close()
+    await client.close()
 
 
 @pytest.fixture
