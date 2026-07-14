@@ -27,7 +27,6 @@ class FindingSnapshot:
     """Point-in-time capture of a finding's content at feedback submission time."""
 
     agent: AgentName
-    severity: str
     fields: dict[str, Any]
 
 
@@ -51,7 +50,6 @@ class FeedbackEntry:
         if self.finding_snapshot is not None:
             snapshot = {
                 "agent": self.finding_snapshot.agent.value,
-                "severity": self.finding_snapshot.severity,
                 "fields": self.finding_snapshot.fields,
             }
         return {
@@ -74,7 +72,6 @@ class FeedbackEntry:
         if raw_snapshot is not None:
             snapshot = FindingSnapshot(
                 agent=AgentName(raw_snapshot["agent"]),
-                severity=raw_snapshot["severity"],
                 fields=raw_snapshot["fields"],
             )
         return cls(

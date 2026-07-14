@@ -43,7 +43,6 @@ def _make_snapshot(
 ) -> models.FindingSnapshot:
     return models.FindingSnapshot(
         agent=agent,
-        severity="high",
         fields={"issue": "Broken link", "category": "links"},
     )
 
@@ -119,7 +118,6 @@ class TestCreate:
         stored = await repo.collection.find_one({"_id": entry.id})
         assert stored is not None
         assert stored["finding_snapshot"]["agent"] == "checker"
-        assert stored["finding_snapshot"]["severity"] == "high"
 
     async def test_persists_none_snapshot(
         self, repo: repository.MongoFeedbackRepository
@@ -157,7 +155,6 @@ class TestGetById:
     ) -> None:
         snapshot = models.FindingSnapshot(
             agent=models.AgentName.CRITIC,
-            severity="medium",
             fields={"what": "Passive voice", "where": "Introduction"},
         )
         entry = _make_entry(agent=models.AgentName.CRITIC, finding_snapshot=snapshot)
@@ -168,7 +165,6 @@ class TestGetById:
         assert result is not None
         assert result.finding_snapshot is not None
         assert result.finding_snapshot.agent == models.AgentName.CRITIC
-        assert result.finding_snapshot.severity == "medium"
         assert result.finding_snapshot.fields["what"] == "Passive voice"
 
 

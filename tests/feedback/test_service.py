@@ -11,12 +11,10 @@ from app.feedback import models, service
 
 def _make_snapshot(
     agent: models.AgentName = models.AgentName.CHECKER,
-    severity: str = "high",
     fields: dict[str, Any] | None = None,
 ) -> models.FindingSnapshot:
     return models.FindingSnapshot(
         agent=agent,
-        severity=severity,
         fields=fields or {"issue": "Broken link"},
     )
 
@@ -78,9 +76,7 @@ class TestCreateFeedback:
         assert entry.finding_index == 0
 
     async def test_stores_snapshot_from_source(self) -> None:
-        snapshot = _make_snapshot(
-            severity="critical", fields={"issue": "Critical issue"}
-        )
+        snapshot = _make_snapshot(fields={"issue": "Critical issue"})
         svc = _make_service(snapshot=snapshot)
 
         entry = await svc.create_feedback(
@@ -92,7 +88,7 @@ class TestCreateFeedback:
         )
 
         assert entry.finding_snapshot is not None
-        assert entry.finding_snapshot.severity == "critical"
+        assert entry.finding_snapshot.fields["issue"] == "Critical issue"
 
     async def test_raises_job_not_found_when_snapshot_is_none_for_job_level(
         self,
@@ -177,6 +173,66 @@ class TestCreateFeedback:
         )
 
         assert isinstance(entry.id, uuid.UUID)
+
+    async def test_raises_agent_job_mismatch_when_job_belongs_to_other_agent(
+        self,
+    ) -> None:
+        job_id = uuid.uuid4()
+        checker_source: AsyncMock = AsyncMock()
+        checker_source.get_finding_snapshot = AsyncMock(return_value=None)
+        critic_source: AsyncMock = AsyncMock()
+        critic_source.get_finding_snapshot = AsyncMock(
+            return_value=_make_snapshot(agent=models.AgentName.CRITIC)
+        )
+        repo: AsyncMock = AsyncMock()
+        repo.get_for_finding = AsyncMock(return_value=None)
+
+        svc = service.FeedbackService(
+            repo,
+            {
+                models.AgentName.CHECKER: checker_source,
+                models.AgentName.CRITIC: critic_source,
+            },
+        )
+
+        with pytest.raises(service.AgentJobMismatchError):
+            await svc.create_feedback(
+                job_id=job_id,
+                agent=models.AgentName.CHECKER,
+                finding_index=0,
+                verdict=models.FeedbackVerdict.FIX,
+                comment=None,
+            )
+
+    async def test_raises_agent_job_mismatch_for_job_level_feedback(
+        self,
+    ) -> None:
+        job_id = uuid.uuid4()
+        checker_source: AsyncMock = AsyncMock()
+        checker_source.get_finding_snapshot = AsyncMock(return_value=None)
+        critic_source: AsyncMock = AsyncMock()
+        critic_source.get_finding_snapshot = AsyncMock(
+            return_value=_make_snapshot(agent=models.AgentName.CRITIC)
+        )
+        repo: AsyncMock = AsyncMock()
+        repo.get_for_finding = AsyncMock(return_value=None)
+
+        svc = service.FeedbackService(
+            repo,
+            {
+                models.AgentName.CHECKER: checker_source,
+                models.AgentName.CRITIC: critic_source,
+            },
+        )
+
+        with pytest.raises(service.AgentJobMismatchError):
+            await svc.create_feedback(
+                job_id=job_id,
+                agent=models.AgentName.CHECKER,
+                finding_index=None,
+                verdict=models.FeedbackVerdict.FIX,
+                comment=None,
+            )
 
     async def test_dispatches_to_critic_source(self) -> None:
         critic_snapshot = _make_snapshot(agent=models.AgentName.CRITIC)

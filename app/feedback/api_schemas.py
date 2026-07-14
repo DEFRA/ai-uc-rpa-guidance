@@ -59,7 +59,6 @@ class FindingSnapshotResponse(pydantic.BaseModel):
     )
 
     agent: models.AgentName
-    severity: str
     fields: dict[str, Any]
 
 
@@ -95,7 +94,6 @@ class FeedbackResponse(pydantic.BaseModel):
         if entry.finding_snapshot is not None:
             snapshot = FindingSnapshotResponse(
                 agent=entry.finding_snapshot.agent,
-                severity=entry.finding_snapshot.severity,
                 fields=entry.finding_snapshot.fields,
             )
         return cls(

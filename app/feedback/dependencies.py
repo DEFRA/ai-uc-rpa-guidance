@@ -6,9 +6,11 @@ import fastapi
 import pymongo
 
 from app.common import mongo
+from app.critique import sources as critique_sources
 from app.critique.jobs import dependencies as critique_dependencies
 from app.critique.jobs import repository as critique_repository
 from app.feedback import models, repository, service, sources
+from app.publishing import sources as publishing_sources
 from app.publishing.jobs import dependencies as publishing_dependencies
 from app.publishing.jobs import repository as publishing_repository
 
@@ -35,7 +37,7 @@ def get_publishing_finding_source(
         publishing_repository.AbstractPublishingJobRepository,
         fastapi.Depends(publishing_dependencies.get_job_repository),
     ],
-) -> sources.PublishingFindingSource:
+) -> publishing_sources.PublishingFindingSource:
     """Provide a FindingSource adapter for publishing (checker) jobs.
 
     Args:
@@ -44,7 +46,7 @@ def get_publishing_finding_source(
     Returns:
         PublishingFindingSource adapter.
     """
-    return sources.PublishingFindingSource(job_repo)
+    return publishing_sources.PublishingFindingSource(job_repo)
 
 
 def get_critique_finding_source(
@@ -52,7 +54,7 @@ def get_critique_finding_source(
         critique_repository.AbstractCritiqueJobRepository,
         fastapi.Depends(critique_dependencies.get_job_repository),
     ],
-) -> sources.CritiqueFindingSource:
+) -> critique_sources.CritiqueFindingSource:
     """Provide a FindingSource adapter for critique (critic) jobs.
 
     Args:
@@ -61,7 +63,7 @@ def get_critique_finding_source(
     Returns:
         CritiqueFindingSource adapter.
     """
-    return sources.CritiqueFindingSource(job_repo)
+    return critique_sources.CritiqueFindingSource(job_repo)
 
 
 def get_feedback_service(
@@ -70,11 +72,11 @@ def get_feedback_service(
         fastapi.Depends(get_feedback_repository),
     ],
     publishing_source: Annotated[
-        sources.PublishingFindingSource,
+        publishing_sources.PublishingFindingSource,
         fastapi.Depends(get_publishing_finding_source),
     ],
     critique_source: Annotated[
-        sources.CritiqueFindingSource,
+        critique_sources.CritiqueFindingSource,
         fastapi.Depends(get_critique_finding_source),
     ],
 ) -> service.FeedbackService:

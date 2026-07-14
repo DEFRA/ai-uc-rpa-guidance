@@ -18,7 +18,6 @@ NOW = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
 def _make_snapshot() -> models.FindingSnapshot:
     return models.FindingSnapshot(
         agent=models.AgentName.CHECKER,
-        severity="high",
         fields={"issue": "Broken link", "category": "links"},
     )
 
@@ -109,7 +108,6 @@ class TestCreateFeedback:
 
         data = response.json()
         assert data["findingSnapshot"] is not None
-        assert data["findingSnapshot"]["severity"] == "high"
         assert data["findingSnapshot"]["fields"]["issue"] == "Broken link"
 
     def test_returns_201_for_job_level_feedback(self) -> None:
@@ -155,6 +153,20 @@ class TestCreateFeedback:
             _clear_overrides()
 
         assert response.status_code == 404
+
+    def test_returns_422_when_agent_does_not_match_job(self) -> None:
+        svc: AsyncMock = AsyncMock(spec=service.FeedbackService)
+        svc.create_feedback = AsyncMock(
+            side_effect=service.AgentJobMismatchError("mismatch")
+        )
+        _override_service_with(svc)
+
+        try:
+            response = client.post("/feedback", json=_create_request())
+        finally:
+            _clear_overrides()
+
+        assert response.status_code == 422
 
     def test_returns_409_when_feedback_already_exists(self) -> None:
         svc = AsyncMock(spec=service.FeedbackService)

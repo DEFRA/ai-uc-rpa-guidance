@@ -21,6 +21,10 @@ class FeedbackAlreadyExistsError(Exception):
     """Raised when feedback already exists for this job+finding_index."""
 
 
+class AgentJobMismatchError(Exception):
+    """Raised when the job_id exists but was produced by a different agent."""
+
+
 FeedbackNotFoundError = models.FeedbackNotFoundError
 
 
@@ -70,6 +74,12 @@ class FeedbackService:
         snapshot = await source.get_finding_snapshot(job_id, finding_index)
 
         if snapshot is None:
+            for other_agent, other_source in self._finding_sources.items():
+                if other_agent is agent:
+                    continue
+                alt_snapshot = await other_source.get_finding_snapshot(job_id, None)
+                if alt_snapshot is not None:
+                    raise AgentJobMismatchError(job_id, agent)
             if finding_index is None:
                 raise JobNotFoundError(job_id)
             raise FindingNotFoundError(finding_index)

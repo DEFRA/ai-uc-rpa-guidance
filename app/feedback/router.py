@@ -23,6 +23,9 @@ router = fastapi.APIRouter(prefix="/feedback", tags=["feedback"])
         fastapi.status.HTTP_409_CONFLICT: {
             "description": "Feedback already exists for this job+finding",
         },
+        fastapi.status.HTTP_422_UNPROCESSABLE_CONTENT: {
+            "description": "job_id exists but was produced by a different agent",
+        },
     },
 )
 async def create_feedback(
@@ -67,6 +70,11 @@ async def create_feedback(
         raise fastapi.HTTPException(
             status_code=fastapi.status.HTTP_409_CONFLICT,
             detail=f"Feedback already exists for job {request.job_id} finding {request.finding_index}",
+        ) from None
+    except service.AgentJobMismatchError:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Job {request.job_id} was not produced by agent {request.agent}",
         ) from None
 
     return api_schemas.FeedbackResponse.from_entry(entry)

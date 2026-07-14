@@ -9,7 +9,6 @@ from app.feedback import models
 def _make_snapshot(**overrides: object) -> models.FindingSnapshot:
     defaults: dict[str, object] = {
         "agent": models.AgentName.CHECKER,
-        "severity": "high",
         "fields": {"issue": "Missing alt text", "category": "images_and_formatting"},
     }
     defaults.update(overrides)
@@ -88,7 +87,6 @@ class TestFeedbackEntryRoundTrip:
 
     def test_round_trips_snapshot_fields(self) -> None:
         snapshot = _make_snapshot(
-            severity="critical",
             fields={"issue": "Broken link", "section": "2.3", "category": "links"},
         )
         entry = _make_entry(finding_snapshot=snapshot)
@@ -96,7 +94,6 @@ class TestFeedbackEntryRoundTrip:
         result = models.FeedbackEntry.from_mongo_doc(entry.to_document())
 
         assert result.finding_snapshot is not None
-        assert result.finding_snapshot.severity == "critical"
         assert result.finding_snapshot.fields["issue"] == "Broken link"
         assert result.finding_snapshot.fields["section"] == "2.3"
 
