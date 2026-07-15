@@ -1,32 +1,43 @@
 #!/usr/bin/env python3
-"""Evaluate the publishing checker against a ground-truth expectations file.
+"""Evaluate the critique checker against a ground-truth expectations file.
 
-Drives the live async flow as a black-box client (the same public HTTP contract
-``scripts/publishing.sh`` uses, no app internals): upload the .docx once (reusing
-an already-parsed copy with a matching content hash if present), then for each run
-submit it for analysis and poll the job to completion. Every expected finding is
-then checked against the run's produced findings for a gate-passing match, whose
-issue text is scored for correctness with the pydantic-evals LLM judge.
+Drives the live async flow as a black-box client (the same public HTTP contract the
+frontend uses, no app internals): upload the .docx once (reusing an already-parsed
+copy with a matching content hash if present), then for each run submit it for
+critique (``POST /critique/jobs``) and poll the job to completion. Every expected
+finding is then checked against the run's produced findings for a gate-passing
+match, whose problem description (``what``) is scored for correctness with the
+pydantic-evals LLM judge.
 
-A produced finding clears the mechanical gates for an expectation when:
-  * the expected section number appears in the produced section (titles ignored;
-    expectations without a section number are rejected up front);
-  * category is an exact match;
-  * severity is at least the expected level (info < low < medium < high < critical).
-Among the gate-passers, the one whose issue terms are most similar (jaccard, with
-hyperlinks kept whole) is the match, and only that one is judged for issue
-correctness (0.0-1.0) by the LLM. Only section, category, severity and issue are used.
+The critique response carries one report per standard (``gds`` / ``defra_style``)
+and expectations are keyed the same way. Standards are a hard partition: an
+expectation is only ever compared with findings from its own standard's report --
+matching, ranking, judging and near-miss diagnostics never cross reports.
+
+A finding's location is its ``where`` field, which may name several sections
+(e.g. "Sections 3.2 and 5.1"). Each produced finding is expanded into one
+candidate per section number in its ``where`` before matching. A candidate clears
+the mechanical gates for an expectation when:
+  * the expectation's single section number equals the candidate's section number
+    (expectations must contain exactly one; they are rejected up front otherwise);
+  * severity is at least the expected level (low < medium < high < critical).
+Among the gate-passers, the one whose ``what`` terms are most similar (jaccard,
+with hyperlinks kept whole) is the match, and only that one is judged for
+correctness (0.0-1.0) by the LLM. Only the standard, where, severity and what
+are used.
 
 Usage:
-  uv run scripts/publishing_evaluate.py \
-      <document.docx> <expectations.json> \
+  uv run scripts/critique_evaluate.py \
+      <document.docx> <critique-expectations.json> \
       [--runs N] [--host URL] [--uploader URL] [--out-dir DIR]
 
-Expectations file shape (a subset of the analyse response):
-  {"findings": [{"category": ..., "section": ..., "severity": ..., "issue": ...}]}
+Expectations file shape (findings keyed by standard, each a subset of that
+report's findings; either standard may be omitted):
+  {"findings": {"defra_style": [{"where": ..., "severity": ..., "what": ...}],
+                "gds": [...]}}
 
-Each run's analysis result is written to ``<doc-stem>-publishing-<batch-utc>-run<NN>.json`` in
-the output directory (default: the document file's directory). ``<batch-utc>`` is one
+Each run's critique result is written to ``<doc-stem>-critique-<batch-utc>-run<NN>.json``
+in the output directory (default: the document file's directory). ``<batch-utc>`` is one
 ISO-8601-basic UTC timestamp captured when the script starts, shared by every file
 of the invocation -- so a batch's files share a common prefix, never overwrite a
 prior batch, and sort chronologically.
@@ -35,7 +46,6 @@ prior batch, and sort chronologically.
 import argparse
 import asyncio
 import json
-import re
 import sys
 import time
 from dataclasses import dataclass
@@ -58,10 +68,13 @@ from scripts.console import (
 )
 from scripts.evaluations_common import (
     extract_section_number,
+    extract_section_numbers,
     issue_jaccard,
     severity_rank,
 )
 from scripts.evaluations_runs import (
+    CRITIQUE_JOBS_PATH,
+    CRITIQUE_TIMEOUT_S,
     DEFAULT_CONCURRENCY,
     DEFAULT_HOST,
     DEFAULT_UPLOADER,
@@ -72,94 +85,130 @@ from scripts.evaluations_runs import (
     validate_document,
 )
 
-ISSUE_RUBRIC = (
-    "EXPECTED is a document-quality issue identified by a human reviewer. "
-    "OUTPUT is the issue text produced by an automated checker. Score how fully "
-    "OUTPUT identifies the same underlying problem as EXPECTED: 1.0 = the same "
-    "problem, clearly captured; 0.0 = unrelated or missed. Judge the substance "
-    "of the problem, not the wording."
+STANDARDS = ("gds", "defra_style")
+
+WHAT_RUBRIC = (
+    "EXPECTED is a style/content divergence identified by a human reviewer. "
+    "OUTPUT is the problem description produced by an automated style critic. "
+    "Score how fully OUTPUT identifies the same underlying problem as EXPECTED: "
+    "1.0 = the same problem, clearly captured; 0.0 = unrelated or missed. Judge "
+    "the substance of the problem, not the wording."
 )
 
 
-def section_number_match(expected_section: str, produced_section: str) -> bool:
-    """Whether the produced section contains the expectation's section number.
+def load_expectations(path: Path) -> list[dict[str, Any]]:
+    """Load and flatten the per-standard expectations, validating up front.
 
-    Section matching is purely mechanical on the number -- titles are ignored.
-    Expectations without a number are rejected up front (see ``main``).
+    Returns one expectation dict per entry with its ``standard`` attached. Either
+    standard key may be omitted; unknown keys are rejected, as is any expectation
+    whose ``where`` does not name exactly one section number (split multi-section
+    ground truth into separate entries by hand).
     """
-    number = extract_section_number(expected_section)
-    if number is None:
-        return False
-    pattern = rf"(?<!\d){re.escape(number)}(?!\d)"
-    return re.search(pattern, produced_section) is not None
+    by_standard = json.loads(path.read_text(encoding="utf-8"))["findings"]
+    unknown = sorted(set(by_standard) - set(STANDARDS))
+    if unknown:
+        message = f"unknown standard keys {unknown}; expected keys from {STANDARDS}"
+        raise SystemExit(message)
+    expectations = [
+        {**expected, "standard": standard}
+        for standard in STANDARDS
+        for expected in by_standard.get(standard, [])
+    ]
+    bad_where = [
+        f"{expected['standard']} #{index + 1}"
+        for index, expected in enumerate(expectations)
+        if len(extract_section_numbers(str(expected.get("where", "")))) != 1
+    ]
+    if bad_where:
+        message = (
+            f"expectations [{', '.join(bad_where)}] must name exactly one section "
+            "number in 'where'; split multi-section expectations into one entry each"
+        )
+        raise SystemExit(message)
+    return expectations
+
+
+def candidate_pools(reports: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Per-standard candidate findings, one candidate per section number in ``where``.
+
+    The per-report split is the standards partition: an expectation only ever sees
+    its own standard's pool. A finding whose ``where`` names no section number
+    yields one number-less candidate -- it can never pass the section gate but
+    remains visible to near-miss diagnostics.
+    """
+    pools: dict[str, list[dict[str, Any]]] = {standard: [] for standard in STANDARDS}
+    for report in reports:
+        pool = pools.setdefault(str(report.get("standard", "")), [])
+        for finding in report.get("findings", []):
+            numbers = extract_section_numbers(str(finding.get("where", "")))
+            pool.extend(
+                {**finding, "section_number": number} for number in numbers or [None]
+            )
+    return pools
 
 
 def gate_breakdown(
-    expected: dict[str, Any], produced: dict[str, Any]
+    expected: dict[str, Any], candidate: dict[str, Any]
 ) -> dict[str, bool]:
-    """Per-gate pass/fail of a produced finding against an expectation."""
+    """Per-gate pass/fail of a produced candidate against an expectation."""
     return {
-        "category": expected.get("category") == produced.get("category"),
-        "severity": severity_rank(str(produced.get("severity", "")))
+        "severity": severity_rank(str(candidate.get("severity", "")))
         >= severity_rank(str(expected.get("severity", ""))),
-        "section": section_number_match(
-            str(expected.get("section", "")), str(produced.get("section", ""))
-        ),
+        "section": extract_section_number(str(expected.get("where", "")))
+        == candidate.get("section_number"),
     }
 
 
 def best_near_miss(
-    expected: dict[str, Any], produced: list[dict[str, Any]]
+    expected: dict[str, Any], pool: list[dict[str, Any]]
 ) -> tuple[dict[str, Any] | None, dict[str, bool]]:
-    """The most diagnostic near-miss finding and its gate outcomes.
+    """The most diagnostic near-miss candidate and its gate outcomes.
 
-    Prefers a finding in the right section, then one passing the most gates, so
+    Prefers a candidate in the right section, then one passing the most gates, so
     the breakdown explains the closest the checker came to the expectation.
     """
     best: dict[str, Any] | None = None
     best_gates: dict[str, bool] = {}
     best_rank: tuple[bool, int] | None = None
-    for finding in produced:
-        gates = gate_breakdown(expected, finding)
+    for candidate in pool:
+        gates = gate_breakdown(expected, candidate)
         rank = (gates["section"], sum(gates.values()))
         if best_rank is None or rank > best_rank:
-            best, best_gates, best_rank = finding, gates, rank
+            best, best_gates, best_rank = candidate, gates, rank
     return best, best_gates
 
 
 def describe_gates(
-    expected: dict[str, Any], finding: dict[str, Any], gates: dict[str, bool]
+    expected: dict[str, Any], candidate: dict[str, Any], gates: dict[str, bool]
 ) -> str:
     """Explain which gate the near-miss failed, stating the failing produced value."""
     tick = green("✓")
     cross = red("✗")
-    if not gates["category"]:
-        return f"category {cross} (no {expected.get('category', '?')} finding produced)"
     if gates["severity"]:
         severity_part = f"severity {tick}"
     else:
         severity_part = (
-            f"severity {cross} (got {finding.get('severity', '?')}, "
+            f"severity {cross} (got {candidate.get('severity', '?')}, "
             f"need ≥{expected.get('severity', '?')})"
         )
     if gates["section"]:
         section_part = f"section {tick}"
     else:
-        produced_section = str(finding.get("section", "")).strip()
-        got = repr(produced_section) if produced_section else "none"
-        expected_section = str(expected.get("section", "")).strip()
-        section_part = f"section {cross} (got {got}, need {expected_section!r})"
-    return f"category {tick}  {severity_part}  {section_part}"
+        produced_where = str(candidate.get("where", "")).strip()
+        got = repr(produced_where) if produced_where else "none"
+        expected_where = str(expected.get("where", "")).strip()
+        section_part = f"section {cross} (got {got}, need {expected_where!r})"
+    return f"{severity_part}  {section_part}"
 
 
-async def issue_correctness(
-    expected_issue: str, produced_issue: str, model: Any
+async def what_correctness(
+    expected_what: str, produced_what: str, model: Any
 ) -> tuple[float, str]:
-    """Judge how well a produced issue captures the expected issue: (score, reason)."""
+    """Judge how well a produced problem description captures the expected one."""
     grading = await judge_output_expected(
-        output=produced_issue,
-        expected_output=expected_issue,
-        rubric=ISSUE_RUBRIC,
+        output=produced_what,
+        expected_output=expected_what,
+        rubric=WHAT_RUBRIC,
         model=model,
         model_settings=ModelSettings(temperature=0.0),
     )
@@ -168,57 +217,51 @@ async def issue_correctness(
 
 @dataclass
 class ExpectationOutcome:
-    """The result of matching one expectation against a run's produced findings."""
+    """The result of matching one expectation against its standard's candidates."""
 
     matched: bool
     score: float | None
     reason: str
     finding: dict[str, Any] | None
     gates: dict[str, bool]
-    issue_jaccard: float
+    what_jaccard: float
 
 
 async def evaluate_expectation(
-    expected: dict[str, Any], produced: list[dict[str, Any]], model: Any
+    expected: dict[str, Any], pool: list[dict[str, Any]], model: Any
 ) -> ExpectationOutcome:
     """Match an expectation via a section-first waterfall, then judge the best candidate.
 
-    Stage 1 — section: narrows to findings in the expected section.
-    Stage 2 — category: narrows to findings of the expected category within that section.
-    Stage 3 — severity: narrows to findings at or above the expected severity.
-    The survivors are ranked by jaccard on issue terms; only the top-ranked is judged.
-    Each stage reports a miss with the best near-miss from that stage as context.
+    ``pool`` holds only the expectation's own standard's candidates -- the standards
+    partition happens before this function.
+    Stage 1 — section: narrows to candidates in the expected section.
+    Stage 2 — severity: narrows to candidates at or above the expected severity.
+    The survivors are ranked by jaccard on ``what`` terms; only the top-ranked is
+    judged. Each stage reports a miss with the best near-miss from that stage.
     """
-    expected_issue = str(expected.get("issue", ""))
+    expected_what = str(expected.get("what", ""))
 
-    def by_issue_jaccard(f: dict[str, Any]) -> float:
-        return issue_jaccard(expected_issue, str(f.get("issue", "")))
+    def by_what_jaccard(candidate: dict[str, Any]) -> float:
+        return issue_jaccard(expected_what, str(candidate.get("what", "")))
 
-    in_section = [f for f in produced if gate_breakdown(expected, f)["section"]]
+    in_section = [c for c in pool if gate_breakdown(expected, c)["section"]]
     if not in_section:
-        finding, gates = best_near_miss(expected, produced)
+        finding, gates = best_near_miss(expected, pool)
         return ExpectationOutcome(False, None, "", finding, gates, 0.0)
 
-    right_category = [f for f in in_section if gate_breakdown(expected, f)["category"]]
-    if not right_category:
-        finding = max(in_section, key=by_issue_jaccard)
-        return ExpectationOutcome(
-            False, None, "", finding, gate_breakdown(expected, finding), 0.0
-        )
-
-    candidates = [f for f in right_category if gate_breakdown(expected, f)["severity"]]
+    candidates = [c for c in in_section if gate_breakdown(expected, c)["severity"]]
     if not candidates:
         finding = max(
-            right_category, key=lambda f: severity_rank(str(f.get("severity", "")))
+            in_section, key=lambda c: severity_rank(str(c.get("severity", "")))
         )
         return ExpectationOutcome(
             False, None, "", finding, gate_breakdown(expected, finding), 0.0
         )
 
-    best = max(candidates, key=by_issue_jaccard)
-    jaccard = issue_jaccard(expected_issue, str(best.get("issue", "")))
-    score, reason = await issue_correctness(
-        expected_issue, str(best.get("issue", "")), model
+    best = max(candidates, key=by_what_jaccard)
+    jaccard = issue_jaccard(expected_what, str(best.get("what", "")))
+    score, reason = await what_correctness(
+        expected_what, str(best.get("what", "")), model
     )
     return ExpectationOutcome(
         True, score, reason, best, gate_breakdown(expected, best), jaccard
@@ -227,10 +270,10 @@ async def evaluate_expectation(
 
 def expectation_label(expected: dict[str, Any], index: int) -> str:
     """A compact, content-light label for an expectation."""
-    number = extract_section_number(str(expected.get("section", ""))) or "?"
-    category = expected.get("category", "?")
+    number = extract_section_number(str(expected.get("where", ""))) or "?"
+    standard = expected.get("standard", "?")
     severity = expected.get("severity", "?")
-    return f"#{index + 1} {category} ≥{severity} §{number}"
+    return f"#{index + 1} {standard} ≥{severity} §{number}"
 
 
 def print_match_detail(
@@ -241,11 +284,11 @@ def print_match_detail(
     score = outcome.score or 0.0
     print(
         f"    {expectation_label(expected, index)}  "
-        f"{colour_score(score, f'score {score:.3f}')}  jaccard {outcome.issue_jaccard:.3f}"
+        f"{colour_score(score, f'score {score:.3f}')}  jaccard {outcome.what_jaccard:.3f}"
     )
-    print(f"      matched section: {finding.get('section', '')}")
-    print(f"      produced issue:  {finding.get('issue', '')}")
-    print(f"      judge:           {outcome.reason}")
+    print(f"      matched where:  {finding.get('where', '')}")
+    print(f"      produced what:  {finding.get('what', '')}")
+    print(f"      judge:          {outcome.reason}")
 
 
 def print_miss_detail(
@@ -258,7 +301,7 @@ def print_miss_detail(
     label = expectation_label(expected, index)
     miss = red("miss")
     if finding is None:
-        print(f"  {miss} {label}: no findings produced")
+        print(f"  {miss} {label}: no {expected.get('standard', '?')} findings produced")
         return
     print(f"  {miss} {label}: {describe_gates(expected, finding, gates)}")
 
@@ -290,24 +333,33 @@ class RunResult:
 
 
 async def run_and_evaluate(batch: Batch, run_index: int) -> RunResult:
-    """Analyse the document once, capture the response, evaluate every expectation.
+    """Critique the document once, capture the response, evaluate every expectation.
 
     The semaphore bounds how many runs are in flight; the duration measures only the
     work, not time spent waiting for a slot.
     """
     async with batch.semaphore:
         start = time.perf_counter()
-        data = await analyse_document(batch.client, batch.host, batch.document_id)
+        data = await analyse_document(
+            batch.client,
+            batch.host,
+            batch.document_id,
+            submit_path=CRITIQUE_JOBS_PATH,
+            jobs_path=CRITIQUE_JOBS_PATH,
+            timeout_s=CRITIQUE_TIMEOUT_S,
+        )
         name = capture_name(
-            batch.stem, "publishing", batch.batch_ts, run_index, batch.run_width
+            batch.stem, "critique", batch.batch_ts, run_index, batch.run_width
         )
         out_path = batch.out_dir / name
         out_path.write_text(
             json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-        produced = data.get("findings", [])
+        pools = candidate_pools(data.get("reports", []))
         outcomes = [
-            await evaluate_expectation(expected, produced, batch.model)
+            await evaluate_expectation(
+                expected, pools.get(str(expected["standard"]), []), batch.model
+            )
             for expected in batch.expectations
         ]
         return RunResult(run_index, out_path, outcomes, time.perf_counter() - start)
@@ -358,7 +410,7 @@ def parse_args() -> argparse.Namespace:
         "expectations", help="Path to the ground-truth expectations JSON file."
     )
     parser.add_argument(
-        "--runs", type=int, default=5, help="Number of analysis runs (default: 5)."
+        "--runs", type=int, default=5, help="Number of critique runs (default: 5)."
     )
     parser.add_argument(
         "--concurrency",
@@ -403,20 +455,7 @@ async def main() -> None:
 
     document_path = Path(args.document)
     validate_document(document_path)
-    expectations = json.loads(Path(args.expectations).read_text(encoding="utf-8"))[
-        "findings"
-    ]
-    numberless = [
-        index + 1
-        for index, expected in enumerate(expectations)
-        if extract_section_number(str(expected.get("section", ""))) is None
-    ]
-    if numberless:
-        message = (
-            f"expectations {numberless} have no section number; section matching "
-            "requires one"
-        )
-        raise SystemExit(message)
+    expectations = load_expectations(Path(args.expectations))
     out_dir = Path(args.out_dir) if args.out_dir else document_path.resolve().parent
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = document_path.stem
@@ -504,9 +543,9 @@ async def main() -> None:
         int(mean_matches), total, f"mean matches {mean_matches:.2f}/{total}"
     )
     mc_text = (
-        colour_score(overall_mean, f"mean issue correctness {overall_mean:.3f}")
+        colour_score(overall_mean, f"mean what correctness {overall_mean:.3f}")
         if judged
-        else dim(f"mean issue correctness {overall_mean:.3f}")
+        else dim(f"mean what correctness {overall_mean:.3f}")
     )
     print(f"\nOverall: {mm_text}   {mc_text}")
     print(

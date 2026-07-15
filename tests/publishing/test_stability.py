@@ -2,9 +2,11 @@
 
 The LLM judge is faked throughout — no live Bedrock call — so the structural
 logic (blocking, clustering, aggregation, symmetry) is exercised deterministically.
+The checker-agnostic engine these harnesses share lives in
+``scripts/stability_common.py``; its behaviour is tested here through both its own
+name and the publishing harness that drives it.
 """
 
-import argparse
 import asyncio
 import json
 from pathlib import Path
@@ -12,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from scripts import publishing_stability as stability
+from scripts import stability_common as common
 
 
 class RecordingJudge:
@@ -74,7 +77,7 @@ def test_section_key_falls_back_to_text_when_unnumbered() -> None:
 async def test_high_jaccard_matches_without_judging() -> None:
     """Identical text clears the high gate, so the judge is never consulted."""
     judge = RecordingJudge(0.0)
-    score = await stability.same_problem_score(
+    score = await common.same_problem_score(
         "broken link in tenure", "broken link in tenure", judge, low=0.1, high=0.6
     )
     assert score == 1.0
@@ -84,7 +87,7 @@ async def test_high_jaccard_matches_without_judging() -> None:
 async def test_low_jaccard_rejects_without_judging() -> None:
     """Disjoint text falls at or below the low gate, so the judge is never consulted."""
     judge = RecordingJudge(1.0)
-    score = await stability.same_problem_score(
+    score = await common.same_problem_score(
         "heading not styled", "telephone number wrong", judge, low=0.1, high=0.6
     )
     assert score == 0.0
@@ -94,10 +97,10 @@ async def test_low_jaccard_rejects_without_judging() -> None:
 async def test_middle_band_consults_judge_with_canonical_order() -> None:
     """An ambiguous pair is judged, and the judge always sees the sorted pair."""
     judge = RecordingJudge(0.7)
-    forward = await stability.same_problem_score(
+    forward = await common.same_problem_score(
         "alpha beta gamma", "alpha beta delta", judge, low=0.1, high=0.6
     )
-    reversed_ = await stability.same_problem_score(
+    reversed_ = await common.same_problem_score(
         "alpha beta delta", "alpha beta gamma", judge, low=0.1, high=0.6
     )
     assert forward == reversed_ == 0.7
@@ -243,10 +246,10 @@ def test_throttle_is_detected_from_exception_text() -> None:
         pass
 
     # Matched on the type name (message is unremarkable)...
-    assert stability._is_throttle(ThrottlingException("request failed"))
+    assert common._is_throttle(ThrottlingException("request failed"))
     # ...or on the message.
-    assert stability._is_throttle(RuntimeError("HTTP 429 Too Many Requests"))
-    assert not stability._is_throttle(ValueError("malformed response"))
+    assert common._is_throttle(RuntimeError("HTTP 429 Too Many Requests"))
+    assert not common._is_throttle(ValueError("malformed response"))
 
 
 def test_unknown_excluded_category_is_rejected() -> None:
@@ -304,19 +307,6 @@ def _report(
     )
 
 
-def test_match_fraction_is_support_over_runs_to_two_places() -> None:
-    """The fraction is the cluster's run support divided by the run count."""
-    two_of_three = _cluster(
-        "4.1", [_finding("run01", "s", "x"), _finding("run02", "s", "x")]
-    )
-    assert stability.match_fraction(two_of_three, n_runs=3) == "0.67"
-    all_three = _cluster(
-        "4.1",
-        [_finding(r, "s", "x") for r in ("run01", "run02", "run03")],
-    )
-    assert stability.match_fraction(all_three, n_runs=3) == "1.00"
-
-
 def test_section_display_strips_text_prefix_only() -> None:
     """Text-keyed sections show their text; numeric keys pass through unchanged."""
     assert stability.section_display("text:annex") == "annex"
@@ -344,16 +334,17 @@ def test_match_report_rows_lays_runs_side_by_side_in_section_order() -> None:
         ),
     ]
     rows = stability.match_report_rows(_report(runs, clusters))
-    assert rows[0] == ["section", "match_fraction", "run01", "run02", "run03"]
     # Section order puts "2" before "4.1"; the run02 column is blank for the "2" issue.
-    assert rows[1] == ["2", "0.67", "missing heading", "", "heading absent"]
-    assert rows[2] == [
+    assert rows[0] == (
+        "2",
+        pytest.approx(2 / 3),
+        ["missing heading", "", "heading absent"],
+    )
+    assert rows[1] == (
         "4.1",
-        "1.00",
-        "tenure link broken",
-        "tenure link broken",
-        "tenure link broken",
-    ]
+        1.0,
+        ["tenure link broken", "tenure link broken", "tenure link broken"],
+    )
 
 
 def test_match_report_rows_joins_repeated_run_findings() -> None:
@@ -371,22 +362,33 @@ def test_match_report_rows_joins_repeated_run_findings() -> None:
     ]
     rows = stability.match_report_rows(_report(runs, clusters))
     # Both runs appear, so support is 2/2 despite run01 contributing two findings.
-    assert rows[1] == ["4.1", "1.00", "first phrasing | second phrasing", "other run"]
+    assert rows[0] == ("4.1", 1.0, ["first phrasing | second phrasing", "other run"])
 
 
 def test_match_report_path_recovers_input_stem_from_run_file() -> None:
     """With RUN_FILEs the stem drops the batch/run suffix; default dir is the input's."""
-    args = argparse.Namespace(document=None, out_dir=None)
-    paths = [Path("/runs/input-20260626T064742Z-run01.json")]
-    path = stability.match_report_path(args, paths)
+    paths = [Path("/runs/input-publishing-20260626T064742Z-run01.json")]
+    path = common.match_report_path(
+        None, None, paths, stability._RUN_FILE_SUFFIX, "publishing"
+    )
     assert path.parent == Path("/runs")
-    assert path.name.startswith("input-match-report-")
+    assert path.name.startswith("input-publishing-match-report-")
     assert path.suffix == ".xlsx"
+
+
+def test_match_report_path_accepts_pre_infix_run_files() -> None:
+    """Captures named before the checker infix existed still strip to the stem."""
+    paths = [Path("/runs/input-20260626T064742Z-run01.json")]
+    path = common.match_report_path(
+        None, None, paths, stability._RUN_FILE_SUFFIX, "publishing"
+    )
+    assert path.name.startswith("input-publishing-match-report-")
 
 
 def test_match_report_path_uses_document_stem_when_generating() -> None:
     """With --document the report is named for the document and written to --out-dir."""
-    args = argparse.Namespace(document="some/input.docx", out_dir="/out")
-    path = stability.match_report_path(args, paths=[])
+    path = common.match_report_path(
+        "some/input.docx", "/out", [], stability._RUN_FILE_SUFFIX, "publishing"
+    )
     assert path.parent == Path("/out")
-    assert path.name.startswith("input-match-report-")
+    assert path.name.startswith("input-publishing-match-report-")

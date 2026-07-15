@@ -1,6 +1,8 @@
 repos:
+  # Keep this rev in step with the ruff version in uv.lock, or the hook's
+  # formatter fights `uv run task lint`.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.13
+    rev: v0.15.14
     hooks:
       - id: ruff
         args: [--fix]

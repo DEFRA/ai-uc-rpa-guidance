@@ -42,133 +42,50 @@ import json
 import re
 import statistics
 import sys
-import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from itertools import combinations
 from pathlib import Path
-from typing import Any
 
-import pydantic
-import pydantic_ai
 from dotenv import find_dotenv, load_dotenv
-from pydantic_ai.settings import ModelSettings
 
 from app.publishing.models import FindingCategory
-from scripts.publishing_common import extract_section_number, issue_jaccard
-from scripts.publishing_runs import (
+from scripts.console import dim, set_colour
+from scripts.evaluations_common import extract_section_number, issue_jaccard
+from scripts.evaluations_runs import (
     DEFAULT_CONCURRENCY as DEFAULT_RUN_CONCURRENCY,
 )
-from scripts.publishing_runs import (
+from scripts.evaluations_runs import (
     DEFAULT_HOST,
     DEFAULT_UPLOADER,
     generate_runs,
 )
-
-# A judge: given two issue texts, score 0.0-1.0 how much they are the same problem.
-JudgeFn = Callable[[str, str], Awaitable[float]]
+from scripts.stability_common import (
+    DEFAULT_CONCURRENCY,
+    DEFAULT_HIGH_JACCARD,
+    DEFAULT_LOW_JACCARD,
+    DEFAULT_RUNS,
+    DEFAULT_THRESHOLD,
+    JudgeFn,
+    JudgeUsage,
+    bounded_judge,
+    connected_components,
+    dotted_tuple,
+    make_bedrock_judge,
+    match_report_path,
+    pairwise_agreements,
+    progress,
+    run_label,
+    score_edges,
+    support_colour,
+    support_histogram,
+    truncate,
+    write_match_sheet,
+)
 
 # Progress callback: (block number, total blocks, section key, findings in block).
 # Called as each section block starts — the natural, known-ahead unit of work.
 SectionProgress = Callable[[int, int, str, int], None]
-
-# Tiering thresholds for the same-problem decision. Above HIGH the lexical overlap
-# is decisive (match without judging); at or below LOW it is decisive the other way;
-# the band between is sent to the judge. THRESHOLD is the same-problem cut-off applied
-# to the resulting score when drawing a clustering edge.
-DEFAULT_HIGH_JACCARD = 0.6
-DEFAULT_LOW_JACCARD = 0.1
-DEFAULT_THRESHOLD = 0.5
-# Max judge (LLM) calls in flight at once. 1 = sequential. The unit bounded is the
-# pairwise comparison; raising it parallelises the judging within each section block.
-DEFAULT_CONCURRENCY = 1
-# Runs to generate from --document when --runs is not given.
-DEFAULT_RUNS = 5
-
-# Judge-call resilience. Bedrock throttling (ThrottlingException) is retried by
-# boto3 internally with backoff, so it surfaces as slow calls rather than errors;
-# we both retry exhausted throttles ourselves and warn on either signal so a long
-# run's slowness is attributable to rate limiting rather than guessed at.
-SLOW_CALL_WARN_S = 12.0
-MAX_JUDGE_ATTEMPTS = 6
-# Base of the exponential backoff between throttle retries: 5, 10, 20, 40, 80s.
-THROTTLE_BACKOFF_S = 5.0
-_THROTTLE_MARKERS = (
-    "throttl",
-    "too many requests",
-    "toomanyrequests",
-    "rate exceeded",
-    "slowdown",
-    "429",
-)
-
-JUDGE_SYSTEM_PROMPT = (
-    "You compare two issue descriptions, each written by an automated document "
-    "checker on a separate run over the same document. They are peers — neither is "
-    "reference, and their A/B order is arbitrary. Respond with a JSON object "
-    "{reason, score}: score 1.0 if they identify the same underlying problem, 0.0 "
-    "if unrelated, intermediate for partial overlap. Judge the substance of the "
-    "problem, not the wording."
-)
-
-
-class SameProblemGrade(pydantic.BaseModel):
-    """The judge's verdict on whether two issue descriptions are the same problem."""
-
-    reason: str
-    score: float
-
-
-# Own judge agent (the library's judges discard usage; this keeps the run result so
-# tokens can be counted). The Bedrock model is supplied per run, as the checker does.
-_judge_agent = pydantic_ai.Agent(
-    output_type=SameProblemGrade,
-    system_prompt=JUDGE_SYSTEM_PROMPT,
-)
-
-
-@dataclass
-class JudgeUsage:
-    """Running token totals across the judge calls made during a comparison."""
-
-    calls: int = 0
-    input_tokens: int = 0
-    output_tokens: int = 0
-
-
-_COLOUR: bool = False
-
-
-def _wrap(code: str, text: str) -> str:
-    return f"\033[{code}m{text}\033[0m" if _COLOUR else text
-
-
-def _support_colour(support: int, n_runs: int, text: str) -> str:
-    """Green when in every run, red when in only one, yellow in between."""
-    if support <= 1:
-        return _wrap("31", text)
-    return _wrap("32", text) if support >= n_runs else _wrap("33", text)
-
-
-def _dim(text: str) -> str:
-    return _wrap("2", text)
-
-
-def _warn(message: str) -> None:
-    """Emit a diagnostic to stderr, kept off the stdout report."""
-    print(f"[stability] {message}", file=sys.stderr, flush=True)
-
-
-def _progress(message: str) -> None:
-    """Emit a dim progress line to stderr, kept off the stdout report."""
-    print(_dim(f"[stability] {message}"), file=sys.stderr, flush=True)
-
-
-def _is_throttle(error: BaseException) -> bool:
-    """Whether an exception looks like a rate-limit / throttling response."""
-    text = f"{type(error).__name__} {error}".lower()
-    return any(marker in text for marker in _THROTTLE_MARKERS)
 
 
 @dataclass(frozen=True)
@@ -276,87 +193,6 @@ def load_findings(path: Path, excluded: set[str]) -> list[Finding]:
     ]
 
 
-def run_label(path: Path) -> str:
-    """A compact run name: the trailing ``runNN`` token if present, else the stem."""
-    stem = path.stem
-    _, marker, tail = stem.rpartition("run")
-    if marker and tail.isdigit():
-        return f"run{tail}"
-    return stem
-
-
-async def same_problem_score(
-    first: str, second: str, judge: JudgeFn, low: float, high: float
-) -> float:
-    """Tiered 0.0-1.0 score that two issue texts are the same problem.
-
-    Lexical Jaccard decides the clear cases (keeping the judge — itself a variance
-    source — out of them); the judge is consulted only for the ambiguous band. The
-    pair is canonicalised before judging so the score is symmetric by construction.
-    """
-    jaccard = issue_jaccard(first, second)
-    if jaccard >= high:
-        return 1.0
-    if jaccard <= low:
-        return 0.0
-    canonical_first, canonical_second = sorted((first, second))
-    return await judge(canonical_first, canonical_second)
-
-
-def connected_components(size: int, edges: list[tuple[int, int]]) -> list[list[int]]:
-    """Group ``range(size)`` into connected components given undirected ``edges``."""
-    parent = list(range(size))
-
-    def find(node: int) -> int:
-        while parent[node] != node:
-            parent[node] = parent[parent[node]]
-            node = parent[node]
-        return node
-
-    for left, right in edges:
-        parent[find(left)] = find(right)
-
-    groups: dict[int, list[int]] = {}
-    for node in range(size):
-        groups.setdefault(find(node), []).append(node)
-    return list(groups.values())
-
-
-def _bounded_judge(judge: JudgeFn, concurrency: int) -> JudgeFn:
-    """A judge that admits at most ``concurrency`` calls at once via a semaphore.
-
-    Only the (slow) judge call is bounded; the Jaccard gate runs unbounded, so a slot
-    is held for an actual LLM call, never for a pair the lexical gate settles.
-    """
-    semaphore = asyncio.Semaphore(concurrency)
-
-    async def bounded(first: str, second: str) -> float:
-        async with semaphore:
-            return await judge(first, second)
-
-    return bounded
-
-
-async def _block_edges(
-    block: list[Finding], judge: JudgeFn, low: float, high: float, threshold: float
-) -> list[tuple[int, int]]:
-    """Same-problem edges among a section block's findings (indices into ``block``).
-
-    A block's pairs are independent, so they are scored concurrently; how many judge
-    calls actually overlap is bounded by the semaphore inside ``judge``.
-    """
-    pairs = list(combinations(range(len(block)), 2))
-    scores = await asyncio.gather(
-        *(
-            same_problem_score(block[i].issue, block[j].issue, judge, low, high)
-            for i, j in pairs
-        )
-    )
-    return [
-        pair for pair, score in zip(pairs, scores, strict=True) if score >= threshold
-    ]
-
-
 async def build_clusters(
     findings: list[Finding],
     judge: JudgeFn,
@@ -372,7 +208,7 @@ async def build_clusters(
     ``on_section`` (if given) is called as each section block begins, the natural
     unit of progress: the block count is known up front, before any judging.
     """
-    bounded = _bounded_judge(judge, concurrency)
+    bounded = bounded_judge(judge, concurrency)
     blocks: dict[str, list[Finding]] = {}
     for finding in findings:
         blocks.setdefault(finding.section_key, []).append(finding)
@@ -381,40 +217,13 @@ async def build_clusters(
     for number, (section_key, block) in enumerate(blocks.items(), start=1):
         if on_section is not None:
             on_section(number, len(blocks), section_key, len(block))
-        edges = await _block_edges(block, bounded, low, high, threshold)
+        pairs = list(combinations(range(len(block)), 2))
+        edges = await score_edges(
+            [finding.issue for finding in block], pairs, bounded, low, high, threshold
+        )
         for component in connected_components(len(block), edges):
             clusters.append(Cluster(section_key, [block[index] for index in component]))
     return clusters
-
-
-def pairwise_agreements(
-    runs: list[str], clusters: list[Cluster]
-) -> dict[tuple[str, str], float]:
-    """Soft-Dice agreement for every unordered run pair, from the cluster supports.
-
-    Each run is the set of issue-clusters it touched; agreement is
-    ``2 * shared / (|i| + |j|)``. Symmetric, and 1.0 for two runs that both raised
-    nothing.
-    """
-    touched = {run: sum(run in cluster.runs for cluster in clusters) for run in runs}
-    agreements: dict[tuple[str, str], float] = {}
-    for first, second in combinations(runs, 2):
-        shared = sum(
-            1
-            for cluster in clusters
-            if first in cluster.runs and second in cluster.runs
-        )
-        denominator = touched[first] + touched[second]
-        agreements[first, second] = 2 * shared / denominator if denominator else 1.0
-    return agreements
-
-
-def support_histogram(clusters: list[Cluster], n_runs: int) -> dict[int, int]:
-    """How many clusters have each support level 1..N."""
-    histogram = dict.fromkeys(range(1, n_runs + 1), 0)
-    for cluster in clusters:
-        histogram[cluster.support] = histogram.get(cluster.support, 0) + 1
-    return histogram
 
 
 def _section_sort_key(section_key: str) -> tuple[int, str, tuple[int, ...]]:
@@ -425,12 +234,7 @@ def _section_sort_key(section_key: str) -> tuple[int, str, tuple[int, ...]]:
     """
     if section_key.startswith("text:"):
         return (0, section_key.removeprefix("text:"), ())
-    return (1, "", tuple(int(part) for part in section_key.split(".")))
-
-
-def _truncate(text: str, width: int = 100) -> str:
-    collapsed = " ".join(text.split())
-    return collapsed if len(collapsed) <= width else f"{collapsed[: width - 1]}…"
+    return (1, "", dotted_tuple(section_key))
 
 
 def print_report(report: StabilityReport) -> None:
@@ -438,11 +242,11 @@ def print_report(report: StabilityReport) -> None:
     n_runs = len(report.runs)
     print(f"Runs: {n_runs}")
     for run in report.runs:
-        print(_dim(f"  {run}: {report.findings_per_run[run]} findings"))
+        print(dim(f"  {run}: {report.findings_per_run[run]} findings"))
     if report.excluded:
-        print(_dim(f"Excluded categories: {', '.join(sorted(report.excluded))}"))
+        print(dim(f"Excluded categories: {', '.join(sorted(report.excluded))}"))
 
-    agreements = list(pairwise_agreements(report.runs, report.clusters).values())
+    agreements = list(pairwise_agreements(report.runs, list(report.clusters)).values())
     mean = sum(agreements) / len(agreements) if agreements else 1.0
     worst = min(agreements) if agreements else 1.0
     # Population SD: the run pairs are the whole set being summarised, not a sample.
@@ -452,17 +256,17 @@ def print_report(report: StabilityReport) -> None:
         f"mean {mean:.3f}   sd {spread:.3f}   min {worst:.3f}"
     )
 
-    histogram = support_histogram(report.clusters, n_runs)
+    histogram = support_histogram(list(report.clusters), n_runs)
     total = len(report.clusters)
     stable = histogram.get(n_runs, 0)
     print(f"Distinct issues: {total}   in all {n_runs} runs: {stable}")
     for support in range(n_runs, 0, -1):
-        print(_dim(f"  in {support}/{n_runs} runs: {histogram.get(support, 0)}"))
+        print(dim(f"  in {support}/{n_runs} runs: {histogram.get(support, 0)}"))
 
     if report.judge_usage is not None:
         usage = report.judge_usage
         print(
-            _dim(
+            dim(
                 f"Judge tokens over {usage.calls} calls: "
                 f"{usage.input_tokens} in, {usage.output_tokens} out "
                 f"({usage.input_tokens + usage.output_tokens} total)"
@@ -476,22 +280,18 @@ def print_report(report: StabilityReport) -> None:
     )
     for cluster in ordered:
         representative = cluster.representative()
-        ratio = _support_colour(cluster.support, n_runs, f"{cluster.support}/{n_runs}")
+        ratio = support_colour(cluster.support, n_runs, f"{cluster.support}/{n_runs}")
         cats = ", ".join(cluster.categories)
         confs = ", ".join(cluster.confidences)
         print(
-            f"  {ratio}  §{cluster.section_key}  [{cats}]  [{confs}]  {_truncate(representative.issue)}"
+            f"  {ratio}  §{cluster.section_key}  [{cats}]  [{confs}]  {truncate(representative.issue)}"
         )
 
 
-# Trailing "-<batch timestamp>-runNN" tail that generate_runs appends to the input
-# stem; stripped to recover the original document name for the report filename.
-_RUN_FILE_SUFFIX = re.compile(r"-\d{8}T\d{6}Z-run\d+$")
-
-
-def match_fraction(cluster: Cluster, n_runs: int) -> str:
-    """Fraction of runs the cluster appears in, as a two-decimal string."""
-    return f"{cluster.support / n_runs:.2f}" if n_runs else "0.00"
+# Trailing "-publishing-<batch timestamp>-runNN" tail that generate_runs appends to
+# the input stem (the checker infix is optional so pre-infix captures still work);
+# stripped to recover the original document name for the report filename.
+_RUN_FILE_SUFFIX = re.compile(r"(?:-publishing)?-\d{8}T\d{6}Z-run\d+$")
 
 
 def section_display(section_key: str) -> str:
@@ -499,192 +299,42 @@ def section_display(section_key: str) -> str:
     return section_key.removeprefix("text:")
 
 
-def match_report_rows(report: StabilityReport) -> list[list[str]]:
-    """Header plus one row per cluster: section, match fraction, then each run's issue.
+def match_report_rows(report: StabilityReport) -> list[tuple[str, float, list[str]]]:
+    """One row per cluster: section, match fraction, then each run's issue text.
 
     Clusters are laid out in section order so each row reads as one issue with every
-    run's wording of it side by side; a run that did not raise the issue leaves a blank
-    cell. A run contributing two findings to one cluster has them joined with ' | '.
+    run's wording of it side by side; a run that did not raise the issue leaves a
+    blank cell. A run contributing two findings to one cluster has them joined
+    with ' | '.
     """
     n_runs = len(report.runs)
-    rows = [["section", "match_fraction", *report.runs]]
     ordered = sorted(
         report.clusters,
         key=lambda c: (_section_sort_key(c.section_key), -c.support),
     )
+    rows: list[tuple[str, float, list[str]]] = []
     for cluster in ordered:
         by_run: dict[str, list[str]] = {}
         for member in cluster.members:
             by_run.setdefault(member.run, []).append(member.issue)
         cells = [" | ".join(dict.fromkeys(by_run.get(run, []))) for run in report.runs]
         rows.append(
-            [
+            (
                 section_display(cluster.section_key),
-                match_fraction(cluster, n_runs),
-                *cells,
-            ]
+                cluster.support / n_runs if n_runs else 0.0,
+                cells,
+            )
         )
     return rows
 
 
 def write_match_report(report: StabilityReport, path: Path) -> None:
-    """Write the per-run match report to ``path`` as a formatted Excel workbook.
-
-    Formatting applied:
-    - Font: Aptos Narrow 11pt throughout.
-    - Row 1 headers: bold with a bottom border only.
-    - Section column (A): text number format so "4.1" is never coerced to a decimal.
-    - Match fraction column (B): float stored as 0% percentage with Excel's standard
-      red→white→blue 3-colour scale (F8696B / FCFCFF / 5A8AC6).
-    - Run columns (C+): 85 character units wide (≈ 600 px), word-wrapped, top-aligned.
-    """
+    """Write the per-run match report to ``path`` as a formatted Excel workbook."""
     import openpyxl
-    from openpyxl.formatting.rule import ColorScaleRule
-    from openpyxl.styles import Alignment, Border, Font, Side
-    from openpyxl.utils import get_column_letter
 
     wb = openpyxl.Workbook()
-    ws = wb.active
-    base_font = Font(name="Aptos Narrow", size=11)
-    header_font = Font(name="Aptos Narrow", size=11, bold=True)
-    header_border = Border(bottom=Side(style="thin"))
-    top = Alignment(vertical="top")
-    wrap = Alignment(wrap_text=True, vertical="top")
-    n_runs = len(report.runs)
-
-    for col, text in enumerate(["section", "match", *report.runs], 1):
-        cell = ws.cell(row=1, column=col, value=text)
-        cell.font = header_font
-        cell.border = header_border
-
-    ordered = sorted(
-        report.clusters,
-        key=lambda c: (_section_sort_key(c.section_key), -c.support),
-    )
-    for row_idx, cluster in enumerate(ordered, start=2):
-        by_run: dict[str, list[str]] = {}
-        for m in cluster.members:
-            by_run.setdefault(m.run, []).append(m.issue)
-
-        sec = ws.cell(row=row_idx, column=1, value=section_display(cluster.section_key))
-        sec.number_format = "@"
-        sec.alignment = top
-        sec.font = base_font
-
-        frac = ws.cell(
-            row=row_idx,
-            column=2,
-            value=cluster.support / n_runs if n_runs else 0.0,
-        )
-        frac.number_format = "0%"
-        frac.alignment = top
-        frac.font = base_font
-
-        for col_idx, run in enumerate(report.runs, start=3):
-            issues = by_run.get(run, [])
-            cell = ws.cell(
-                row=row_idx,
-                column=col_idx,
-                value=" | ".join(dict.fromkeys(issues)),
-            )
-            cell.alignment = wrap
-            cell.font = base_font
-
-    if ordered:
-        # Excel's built-in Red–White–Blue preset: low=flaky (red), high=stable (blue).
-        ws.conditional_formatting.add(
-            f"B2:B{1 + len(ordered)}",
-            ColorScaleRule(
-                start_type="min",
-                start_color="FFF8696B",
-                mid_type="percentile",
-                mid_value=50,
-                mid_color="FFFCFCFF",
-                end_type="max",
-                end_color="FF5A8AC6",
-            ),
-        )
-
-    ws.column_dimensions["A"].width = 10
-    ws.column_dimensions["B"].width = 7
-    for i in range(3, 3 + n_runs):
-        ws.column_dimensions[get_column_letter(i)].width = 60
-
+    write_match_sheet(wb.active, report.runs, match_report_rows(report))
     wb.save(path)
-
-
-def match_report_path(args: argparse.Namespace, paths: list[Path]) -> Path:
-    """Where to write the match report: '<input>-match-report-<timestamp>.xlsx'.
-
-    Written to --out-dir, or the input's own directory when that is unset: the
-    document's for --document, otherwise the run files'. The input stem is the document
-    name, otherwise recovered from the first run file by stripping its batch/run suffix.
-    """
-    if args.document is not None:
-        document = Path(args.document)
-        default_dir = document.resolve().parent
-        stem = document.stem
-    else:
-        default_dir = paths[0].parent
-        stem = _RUN_FILE_SUFFIX.sub("", paths[0].stem)
-    out_dir = Path(args.out_dir) if args.out_dir else default_dir
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    return out_dir / f"{stem}-match-report-{timestamp}.xlsx"
-
-
-def make_bedrock_judge(model: Any) -> tuple[JudgeFn, JudgeUsage]:
-    """A Bedrock-backed judge (temperature 0) and the usage it accumulates.
-
-    Each call's input/output tokens are summed into the returned ``JudgeUsage`` so
-    the cost of the similarity checks can be reported. Only middle-band pairs reach
-    here; Jaccard-resolved pairs cost nothing.
-    """
-    usage = JudgeUsage()
-
-    async def run_once(prompt: str) -> tuple[Any, float]:
-        """Run the judge once, retrying explicit throttles with backoff."""
-        for attempt in range(1, MAX_JUDGE_ATTEMPTS + 1):
-            start = time.perf_counter()
-            try:
-                result = await _judge_agent.run(
-                    prompt, model=model, model_settings=ModelSettings(temperature=0.0)
-                )
-            except Exception as error:  # noqa: BLE001 — classify, warn, then re-raise
-                if not _is_throttle(error):
-                    raise
-                if attempt == MAX_JUDGE_ATTEMPTS:
-                    _warn(
-                        f"still rate limited after {MAX_JUDGE_ATTEMPTS} attempts on "
-                        f"judge call {usage.calls + 1}; giving up"
-                    )
-                    raise
-                delay = THROTTLE_BACKOFF_S * 2 ** (attempt - 1)
-                _warn(
-                    f"rate limited on judge call {usage.calls + 1} "
-                    f"(attempt {attempt}/{MAX_JUDGE_ATTEMPTS}); backing off {delay:.0f}s"
-                )
-                await asyncio.sleep(delay)
-            else:
-                return result, time.perf_counter() - start
-        msg = "unreachable: judge retry loop exhausted without return or raise"
-        raise RuntimeError(msg)
-
-    async def judge(first: str, second: str) -> float:
-        prompt = f"<IssueA>\n{first}\n</IssueA>\n<IssueB>\n{second}\n</IssueB>"
-        result, elapsed = await run_once(prompt)
-        run_usage = result.usage
-        usage.calls += 1
-        usage.input_tokens += run_usage.input_tokens or 0
-        usage.output_tokens += run_usage.output_tokens or 0
-        # A slow call with no exception means boto3 is silently retrying a throttle.
-        if elapsed > SLOW_CALL_WARN_S:
-            _warn(
-                f"judge call {usage.calls} took {elapsed:.0f}s — likely being "
-                "throttled (boto3 is backing off internally)"
-            )
-        return result.output.score
-
-    return judge, usage
 
 
 def parse_args() -> argparse.Namespace:
@@ -780,7 +430,8 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help=(
             "Also write a per-run match report Excel workbook "
-            "(<input>-match-report-<ts>.xlsx) to --out-dir or the input's directory."
+            "(<input>-publishing-match-report-<ts>.xlsx) to --out-dir or the "
+            "input's directory."
         ),
     )
     parser.add_argument(
@@ -805,7 +456,7 @@ async def _generate_run_files(args: argparse.Namespace) -> list[Path]:
         raise SystemExit(message)
     document = Path(args.document)
     out_dir = Path(args.out_dir) if args.out_dir else document.resolve().parent
-    _progress(
+    progress(
         f"generating {runs} runs from {document.name} "
         f"(run-concurrency {args.run_concurrency})"
     )
@@ -816,7 +467,7 @@ async def _generate_run_files(args: argparse.Namespace) -> list[Path]:
         host=args.host,
         uploader=args.uploader,
         out_dir=out_dir,
-        on_run=lambda done, total: _progress(f"generated run {done}/{total}"),
+        on_run=lambda done, total: progress(f"generated run {done}/{total}"),
     )
 
 
@@ -837,9 +488,8 @@ def _existing_run_files(args: argparse.Namespace) -> list[Path]:
 
 
 async def main() -> None:
-    global _COLOUR  # noqa: PLW0603
     args = parse_args()
-    _COLOUR = sys.stdout.isatty() and not args.no_colour
+    set_colour(sys.stdout.isatty() and not args.no_colour)
 
     if args.concurrency < 1:
         message = "--concurrency must be at least 1"
@@ -863,7 +513,7 @@ async def main() -> None:
     def report_section(
         number: int, total: int, section_key: str, in_block: int
     ) -> None:
-        _progress(
+        progress(
             f"section {number}/{total}: §{section_key} ({in_block} findings) — "
             f"{judge_usage.calls} judge calls so far"
         )
@@ -886,9 +536,11 @@ async def main() -> None:
     )
     print_report(report)
     if args.match_report:
-        path = match_report_path(args, paths)
+        path = match_report_path(
+            args.document, args.out_dir, paths, _RUN_FILE_SUFFIX, "publishing"
+        )
         write_match_report(report, path)
-        _progress(f"wrote match report {path}")
+        progress(f"wrote match report {path}")
 
 
 if __name__ == "__main__":

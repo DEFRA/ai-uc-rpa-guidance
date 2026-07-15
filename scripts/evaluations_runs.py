@@ -1,10 +1,12 @@
-"""Black-box client for the publishing service: upload a document and analyse it.
+"""Black-box client for the checker services: upload a document and analyse it.
 
 Shared by the evaluation and stability harnesses to drive the live HTTP flow (the
-same public contract ``scripts/publishing.sh`` uses, no app internals): upload the
-.docx once, then submit it for analysis and poll the job to completion — as many
-times as the caller needs. ``generate_runs`` does exactly that N times and writes
-each result to a JSON file.
+same public contract ``scripts/publishing.sh`` / ``scripts/critique.sh`` use, no
+app internals): upload the .docx once, then submit it to a checker's jobs API and
+poll the job to completion — as many times as the caller needs. Publishing and
+critique share the job contract, differing only in paths and timeout (publishing's
+are the defaults). ``generate_runs`` does exactly that N times and writes each
+result to a JSON file.
 """
 
 import asyncio
@@ -22,6 +24,7 @@ import httpx
 DOCUMENTS_PATH = "/guidance/documents/"
 ANALYSE_PATH = "/publishing/analyse"
 JOBS_PATH = "/publishing/jobs"
+CRITIQUE_JOBS_PATH = "/critique/jobs"
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 DEFAULT_HOST = "http://localhost:8085"
 DEFAULT_UPLOADER = "http://localhost:7337"
@@ -29,7 +32,22 @@ DEFAULT_CONCURRENCY = 5
 REQUEST_TIMEOUT_S = 600.0
 PARSE_TIMEOUT_S = 180.0
 ANALYSE_TIMEOUT_S = 600.0
+# A critique run iterates the document for minutes; the analyse timeout is far too
+# tight for it.
+CRITIQUE_TIMEOUT_S = 1800.0
 POLL_INTERVAL_S = 2.0
+
+
+def capture_name(
+    stem: str, checker: str, batch_ts: str, run_index: int, run_width: int
+) -> str:
+    """The capture filename for one run: ``<stem>-<checker>-<batch-utc>-runNN.json``.
+
+    The checker infix keeps one checker's captures distinguishable from another's
+    for the same document; the shared batch timestamp keeps one invocation's files
+    together, never overwriting a prior batch, sorting chronologically.
+    """
+    return f"{stem}-{checker}-{batch_ts}-run{run_index:0{run_width}d}.json"
 
 
 def content_hash(path: Path) -> str:
@@ -128,22 +146,28 @@ async def resolve_document_id(
 
 
 async def analyse_document(
-    client: httpx.AsyncClient, host: str, document_id: str
+    client: httpx.AsyncClient,
+    host: str,
+    document_id: str,
+    *,
+    submit_path: str = ANALYSE_PATH,
+    jobs_path: str = JOBS_PATH,
+    timeout_s: float = ANALYSE_TIMEOUT_S,
 ) -> dict[str, Any]:
-    """Run one analysis to completion and return its result (with ``findings``).
+    """Run one analysis to completion and return its result.
 
     Submits the document, then polls the job until it completes; raises if the
-    job errors or does not finish within the analysis timeout.
+    job errors or does not finish within the analysis timeout. The publishing
+    and critique checkers share this job contract and differ only in the paths
+    (and how long a run may take), so both are driven through here.
     """
-    submit = await client.post(
-        f"{host}{ANALYSE_PATH}", json={"documentId": document_id}
-    )
+    submit = await client.post(f"{host}{submit_path}", json={"documentId": document_id})
     submit.raise_for_status()
     job_id = submit.json()["jobId"]
 
-    deadline = time.monotonic() + ANALYSE_TIMEOUT_S
+    deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
-        poll = await client.get(f"{host}{JOBS_PATH}/{job_id}")
+        poll = await client.get(f"{host}{jobs_path}/{job_id}")
         poll.raise_for_status()
         job = poll.json()
         status = job.get("status")
@@ -165,14 +189,20 @@ async def generate_runs(
     host: str,
     uploader: str,
     out_dir: Path,
+    checker: str = "publishing",
+    submit_path: str = ANALYSE_PATH,
+    jobs_path: str = JOBS_PATH,
+    timeout_s: float = ANALYSE_TIMEOUT_S,
     on_run: Callable[[int, int], None] | None = None,
 ) -> list[Path]:
     """Analyse ``document_path`` ``runs`` times, writing each result to a JSON file.
 
     The document is uploaded/resolved once; the analyses then run with at most
     ``concurrency`` in flight. Files share one batch timestamp prefix and sort
-    chronologically, matching ``publishing_evaluate``'s capture naming. ``on_run`` (if
-    given) is called as each run completes, with (completed, total).
+    chronologically, matching the evaluate scripts' capture naming; ``checker``
+    is the filename infix. ``submit_path``/``jobs_path``/``timeout_s`` select the
+    checker driven (defaults: publishing). ``on_run`` (if given) is called as each
+    run completes, with (completed, total).
     """
     validate_document(document_path)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -187,8 +217,15 @@ async def generate_runs(
         async def capture(index: int) -> Path:
             nonlocal completed
             async with semaphore:
-                data = await analyse_document(client, host, document_id)
-            name = f"{document_path.stem}-{batch_ts}-run{index:0{run_width}d}.json"
+                data = await analyse_document(
+                    client,
+                    host,
+                    document_id,
+                    submit_path=submit_path,
+                    jobs_path=jobs_path,
+                    timeout_s=timeout_s,
+                )
+            name = capture_name(document_path.stem, checker, batch_ts, index, run_width)
             path = out_dir / name
             path.write_text(
                 json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
