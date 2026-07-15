@@ -18,7 +18,7 @@ hyperlinks kept whole) is the match, and only that one is judged for issue
 correctness (0.0-1.0) by the LLM. Only section, category, severity and issue are used.
 
 Usage:
-  uv run --env-file .env python scripts/publishing_evaluate.py \
+  uv run scripts/publishing_evaluate.py \
       <document.docx> <expectations.json> \
       [--runs N] [--host URL] [--uploader URL] [--out-dir DIR]
 
@@ -382,7 +382,7 @@ def parse_args() -> argparse.Namespace:
         "expectations", help="Path to the ground-truth expectations JSON file."
     )
     parser.add_argument(
-        "--runs", type=int, default=1, help="Number of analysis runs (default: 1)."
+        "--runs", type=int, default=5, help="Number of analysis runs (default: 5)."
     )
     parser.add_argument(
         "--concurrency",
