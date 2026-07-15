@@ -124,7 +124,7 @@ tolerated and ignored, so verified findings can be pasted in whole.
 
 ```bash
 uv run scripts/publishing_evaluate.py \
-    scripts/input.docx scripts/publishing-expectations.json
+    data/input/input.docx data/input/publishing-expectations.json
 ```
 
 - `--runs N` — number of analysis runs (default 5); runs execute concurrently
@@ -133,8 +133,9 @@ uv run scripts/publishing_evaluate.py \
   matched issues.
 - `--host` / `--uploader` — override the stack endpoints, use the defaults if
   running locally.
-- `--out-dir` — where captured run files go (default: the document's
-  directory).
+- `--out-dir` — where captured run files go (default: `data/output` — an
+  existing one found by walking up from the cwd, else created next to this
+  repo).
 - `--show-reasons` — print the judge's rationale for each match.
 
 Each run's raw analysis response is captured as
@@ -149,7 +150,7 @@ specified document itself, independent of `publishing_evaluate.py`.
 Example:
 
 ```bash
-$ uv run ./publishing_evaluate.py input.docx publishing-expectations.json --runs 2
+$ uv run scripts/publishing_evaluate.py data/input/input.docx data/input/publishing-expectations.json --runs 2
 Document: input.docx   Expectations: 2   Runs: 2   Concurrency: 2   Host: http://localhost:8085
 Document id: efaa601d-bda4-4e08-9ea0-841f3875e60d
 [1/2] input-publishing-20260702T162410Z-run02.json   matches 2/2   mean correctness 0.950   140.3s
@@ -182,7 +183,7 @@ prefix selects exactly that batch's runs:
 
 ```bash
 uv run scripts/publishing_stability.py \
-    scripts/<doc-stem>-publishing-<batch-utc>-run*.json [--match-report]
+    data/output/<doc-stem>-publishing-<batch-utc>-run*.json [--match-report]
 ```
 
 Pass one batch at a time: run numbers restart at `run01` in every batch, and
@@ -193,7 +194,7 @@ Example: _Note that for a high number of findings within the same section for
 a high number of runs the matching process will take excessive time._
 
 ```bash
-$ uv run ./publishing_stability.py --exclude-categories links input-publishing-20260702T163121Z-run0*
+$ uv run scripts/publishing_stability.py --exclude-categories links data/output/input-publishing-20260702T163121Z-run0*
 [stability] section 1/11: §4 (3 findings) — 0 judge calls so far
 [stability] section 2/11: §4.1 (5 findings) — 3 judge calls so far
 [stability] section 3/11: §4.2 (1 findings) — 11 judge calls so far
@@ -239,7 +240,7 @@ Or generate fresh runs first (needs the stack running):
 
 ```bash
 uv run scripts/publishing_stability.py \
-    --document scripts/input.docx
+    --document data/input/input.docx
 ```
 
 - `--runs N` — number of runs to generate from `--document` (default 5).
@@ -249,6 +250,9 @@ uv run scripts/publishing_stability.py \
   judge, and the same-problem cut-off for clustering.
 - `--concurrency` (judge LLM calls) and `--run-concurrency` (analyses in
   flight when generating) are separate controls.
+- `--out-dir` — where generated run files and the match report go (default:
+  `data/output` — an existing one found by walking up from the cwd, else
+  created next to this repo).
 - `--match-report` — also write an Excel workbook
   (`<doc-stem>-publishing-match-report-<utc>.xlsx`) laying each issue out with
   every run's wording of it side by side in the order in which the findings
@@ -331,7 +335,7 @@ verified findings can be pasted in whole. Anonymised example:
 
 ```bash
 uv run scripts/critique_evaluate.py \
-    scripts/input.docx scripts/critique-expectations.json
+    data/input/input.docx data/input/critique-expectations.json
 ```
 
 Flags are identical to `publishing_evaluate.py` (`--runs`, `--concurrency`,
@@ -343,7 +347,7 @@ checker-infixed naming as the publishing captures.
 Example:
 
 ```bash
-$ uv run ./critique_evaluate.py input.docx critique-expectations.json --runs 3
+$ uv run scripts/critique_evaluate.py data/input/input.docx data/input/critique-expectations.json --runs 3
 Document: input.docx   Expectations: 2   Runs: 3   Concurrency: 3   Host: http://localhost:8085
 Document id: efaa601d-bda4-4e08-9ea0-841f3875e60d
 [1/3] input-critique-20260702T162435Z-run01.json   matches 2/2   mean correctness 0.850   99.5s
@@ -388,7 +392,7 @@ publishing):
 
 ```bash
 uv run scripts/critique_stability.py \
-    scripts/<doc-stem>-critique-<batch-utc>-run*.json [--match-report]
+    data/output/<doc-stem>-critique-<batch-utc>-run*.json [--match-report]
 ```
 
 Or generate fresh runs first (needs the stack running; critique runs take a
@@ -396,14 +400,14 @@ few minutes each):
 
 ```bash
 uv run scripts/critique_stability.py \
-    --document scripts/input.docx
+    --document data/input/input.docx
 ```
 
 Flags match `publishing_stability.py` (`--runs`, `--run-concurrency`,
-`--low`/`--high`/`--threshold`, `--concurrency`, `--match-report`,
-`--no-colour`), except that `--exclude-categories` (a publishing concept) is
-replaced by `--standards`, e.g. `--standards gds` to compare a single
-standard's reports only.
+`--low`/`--high`/`--threshold`, `--concurrency`, `--out-dir`,
+`--match-report`, `--no-colour`), except that `--exclude-categories` (a
+publishing concept) is replaced by `--standards`, e.g. `--standards gds` to
+compare a single standard's reports only.
 
 In the report, a cluster is located by the union of its members' section
 numbers (`§2,3,4`), or by its `where` text when no member names a number; the
@@ -413,7 +417,7 @@ cluster's members.
 Example:
 
 ```bash
-$ uv run ./critique_stability.py input-critique-20260702T162435Z-*
+$ uv run scripts/critique_stability.py data/output/input-critique-20260702T162435Z-*
 [stability] standard 1/2: gds (44 findings, 230 candidate pairs) — 0 judge calls so far
 [stability] standard 2/2: defra_style (4 findings, 3 candidate pairs) — 65 judge calls so far
 Runs: 3
@@ -472,6 +476,10 @@ Judge tokens over 68 calls: 58346 in, 9352 out (67698 total)
 
 ## Notes
 
-- The `.gitignore` in this directory deliberately ignores documents, captured
-  runs and reports (`*.docx`, `*.json`, `*.xlsx`, …) so evaluation artefacts
-  are never committed.
+- Inputs (documents, expectations files) live in `data/input/`; every
+  generated capture and match report defaults to `data/output/`. Both are
+  read explicitly (or via `default_output_dir()` for output) rather than
+  defaulting to wherever the input document happens to live. `data/` is
+  gitignored wholesale at the repo root, so evaluation artefacts are never
+  committed — `data/input/.gitkeep` and `data/output/.gitkeep` are force-added
+  purely to keep the two directories present after a fresh clone.
