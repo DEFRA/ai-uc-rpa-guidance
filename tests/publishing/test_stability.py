@@ -15,6 +15,7 @@ import pytest
 
 from scripts import publishing_stability as stability
 from scripts import stability_common as common
+from scripts.evaluations_runs import default_output_dir
 
 
 class RecordingJudge:
@@ -366,12 +367,12 @@ def test_match_report_rows_joins_repeated_run_findings() -> None:
 
 
 def test_match_report_path_recovers_input_stem_from_run_file() -> None:
-    """With RUN_FILEs the stem drops the batch/run suffix; default dir is the input's."""
+    """With RUN_FILEs the stem drops the batch/run suffix; default dir is default_output_dir()."""
     paths = [Path("/runs/input-publishing-20260626T064742Z-run01.json")]
     path = common.match_report_path(
         None, None, paths, stability._RUN_FILE_SUFFIX, "publishing"
     )
-    assert path.parent == Path("/runs")
+    assert path.parent == default_output_dir()
     assert path.name.startswith("input-publishing-match-report-")
     assert path.suffix == ".xlsx"
 

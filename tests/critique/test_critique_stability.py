@@ -13,6 +13,7 @@ import pytest
 
 from scripts import critique_stability as stability
 from scripts import stability_common as common
+from scripts.evaluations_runs import default_output_dir
 
 
 class RecordingJudge:
@@ -257,6 +258,6 @@ def test_match_report_path_strips_critique_suffix() -> None:
     path = common.match_report_path(
         None, None, paths, stability._RUN_FILE_SUFFIX, "critique"
     )
-    assert path.parent == Path("/runs")
+    assert path.parent == default_output_dir()
     assert path.name.startswith("input-critique-match-report-")
     assert path.suffix == ".xlsx"
