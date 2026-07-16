@@ -58,6 +58,7 @@ from scripts.evaluations_runs import (
 from scripts.evaluations_runs import (
     DEFAULT_HOST,
     DEFAULT_UPLOADER,
+    default_output_dir,
     generate_runs,
 )
 from scripts.stability_common import (
@@ -388,7 +389,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         default=None,
-        help="Directory for generated run files (default: the document's directory).",
+        help=(
+            "Directory for generated run files (default: data/output -- an "
+            "existing one found by walking up from the cwd, else next to this repo)."
+        ),
     )
     parser.add_argument(
         "--exclude-categories",
@@ -431,7 +435,7 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Also write a per-run match report Excel workbook "
             "(<input>-publishing-match-report-<ts>.xlsx) to --out-dir or the "
-            "input's directory."
+            "default data/output directory."
         ),
     )
     parser.add_argument(
@@ -455,7 +459,7 @@ async def _generate_run_files(args: argparse.Namespace) -> list[Path]:
         message = "--run-concurrency must be at least 1"
         raise SystemExit(message)
     document = Path(args.document)
-    out_dir = Path(args.out_dir) if args.out_dir else document.resolve().parent
+    out_dir = Path(args.out_dir) if args.out_dir else default_output_dir()
     progress(
         f"generating {runs} runs from {document.name} "
         f"(run-concurrency {args.run_concurrency})"

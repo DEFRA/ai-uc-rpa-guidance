@@ -36,6 +36,21 @@ ANALYSE_TIMEOUT_S = 600.0
 # tight for it.
 CRITIQUE_TIMEOUT_S = 1800.0
 POLL_INTERVAL_S = 2.0
+_OUTPUT_DIRNAME = Path("data") / "output"
+
+
+def default_output_dir() -> Path:
+    """Where captured runs and reports go when --out-dir is not given.
+
+    Prefers an existing data/output found by walking up from the cwd (mirroring
+    how find_dotenv locates .env); falls back to data/output next to this repo.
+    """
+    repo_root = Path(__file__).resolve().parent.parent
+    for directory in (Path.cwd(), *Path.cwd().parents, repo_root):
+        candidate = directory / _OUTPUT_DIRNAME
+        if candidate.is_dir():
+            return candidate
+    return repo_root / _OUTPUT_DIRNAME
 
 
 def capture_name(

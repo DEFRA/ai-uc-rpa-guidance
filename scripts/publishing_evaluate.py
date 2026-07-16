@@ -26,10 +26,11 @@ Expectations file shape (a subset of the analyse response):
   {"findings": [{"category": ..., "section": ..., "severity": ..., "issue": ...}]}
 
 Each run's analysis result is written to ``<doc-stem>-publishing-<batch-utc>-run<NN>.json`` in
-the output directory (default: the document file's directory). ``<batch-utc>`` is one
-ISO-8601-basic UTC timestamp captured when the script starts, shared by every file
-of the invocation -- so a batch's files share a common prefix, never overwrite a
-prior batch, and sort chronologically.
+the output directory (default: ``data/output`` -- see ``default_output_dir`` in
+``evaluations_runs.py``). ``<batch-utc>`` is one ISO-8601-basic UTC timestamp
+captured when the script starts, shared by every file of the invocation -- so a
+batch's files share a common prefix, never overwrite a prior batch, and sort
+chronologically.
 """
 
 import argparse
@@ -68,6 +69,7 @@ from scripts.evaluations_runs import (
     REQUEST_TIMEOUT_S,
     analyse_document,
     capture_name,
+    default_output_dir,
     resolve_document_id,
     validate_document,
 )
@@ -379,7 +381,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         default=None,
-        help="Directory for captured run files (default: the document file's directory).",
+        help=(
+            "Directory for captured run files (default: data/output -- an "
+            "existing one found by walking up from the cwd, else next to this repo)."
+        ),
     )
     parser.add_argument(
         "--show-reasons",
@@ -417,7 +422,7 @@ async def main() -> None:
             "requires one"
         )
         raise SystemExit(message)
-    out_dir = Path(args.out_dir) if args.out_dir else document_path.resolve().parent
+    out_dir = Path(args.out_dir) if args.out_dir else default_output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = document_path.stem
     # One timestamp per invocation: the shared per-batch prefix that de-conflicts

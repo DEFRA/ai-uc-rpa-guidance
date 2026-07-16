@@ -26,6 +26,7 @@ from pydantic_ai.settings import ModelSettings
 
 from scripts.console import dim, green, red, yellow
 from scripts.evaluations_common import issue_jaccard
+from scripts.evaluations_runs import default_output_dir
 
 # A judge: given two issue texts, score 0.0-1.0 how much they are the same problem.
 JudgeFn = Callable[[str, str], Awaitable[float]]
@@ -261,19 +262,15 @@ def match_report_path(
 
     The checker infix keeps one checker's reports distinguishable from another's
     for the same document, matching the run captures' naming. Written to
-    ``out_dir``, or the input's own directory when that is unset: the document's
-    for --document, otherwise the run files'. The input stem is the document name,
-    otherwise recovered from the first run file by stripping its batch/run suffix
-    (``run_file_suffix``, checker-specific).
+    ``out_dir``, or ``default_output_dir()`` when that is unset. The input stem
+    is the document name for --document, otherwise recovered from the first run
+    file by stripping its batch/run suffix (``run_file_suffix``, checker-specific).
     """
     if document is not None:
-        document_path = Path(document)
-        default_dir = document_path.resolve().parent
-        stem = document_path.stem
+        stem = Path(document).stem
     else:
-        default_dir = paths[0].parent
         stem = run_file_suffix.sub("", paths[0].stem)
-    directory = Path(out_dir) if out_dir else default_dir
+    directory = Path(out_dir) if out_dir else default_output_dir()
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     return directory / f"{stem}-{checker}-match-report-{timestamp}.xlsx"
 
