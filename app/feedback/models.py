@@ -20,6 +20,7 @@ class AgentName(StrEnum):
 
     CHECKER = "checker"
     CRITIC = "critic"
+    REVIEWER = "reviewer"
 
 
 @dataclass

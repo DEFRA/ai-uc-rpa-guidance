@@ -13,6 +13,9 @@ from app.feedback import models, repository, service, sources
 from app.publishing import sources as publishing_sources
 from app.publishing.jobs import dependencies as publishing_dependencies
 from app.publishing.jobs import repository as publishing_repository
+from app.review import sources as review_sources
+from app.review.jobs import dependencies as review_dependencies
+from app.review.jobs import repository as review_repository
 
 
 def get_feedback_repository(
@@ -66,6 +69,23 @@ def get_critique_finding_source(
     return critique_sources.CritiqueFindingSource(job_repo)
 
 
+def get_review_finding_source(
+    job_repo: Annotated[
+        review_repository.AbstractReviewJobRepository,
+        fastapi.Depends(review_dependencies.get_job_repository),
+    ],
+) -> review_sources.ReviewFindingSource:
+    """Provide a FindingSource adapter for review (reviewer) jobs.
+
+    Args:
+        job_repo: Review job repository.
+
+    Returns:
+        ReviewFindingSource adapter.
+    """
+    return review_sources.ReviewFindingSource(job_repo)
+
+
 def get_feedback_service(
     feedback_repo: Annotated[
         repository.AbstractFeedbackRepository,
@@ -79,6 +99,10 @@ def get_feedback_service(
         critique_sources.CritiqueFindingSource,
         fastapi.Depends(get_critique_finding_source),
     ],
+    review_source: Annotated[
+        review_sources.ReviewFindingSource,
+        fastapi.Depends(get_review_finding_source),
+    ],
 ) -> service.FeedbackService:
     """Provide the feedback service.
 
@@ -86,6 +110,7 @@ def get_feedback_service(
         feedback_repo: Feedback repository.
         publishing_source: FindingSource adapter for publishing jobs.
         critique_source: FindingSource adapter for critique jobs.
+        review_source: FindingSource adapter for review jobs.
 
     Returns:
         FeedbackService instance.
@@ -93,5 +118,6 @@ def get_feedback_service(
     finding_sources: dict[models.AgentName, sources.FindingSource] = {
         models.AgentName.CHECKER: publishing_source,
         models.AgentName.CRITIC: critique_source,
+        models.AgentName.REVIEWER: review_source,
     }
     return service.FeedbackService(feedback_repo, finding_sources)
