@@ -58,15 +58,17 @@ class TestStartReview:
         self,
     ) -> None:
         svc = _make_service(content=None)
+        document_id = uuid.uuid4()
 
         with pytest.raises(service.DocumentNotFoundError):
-            await svc.start_review(uuid.uuid4())
+            await svc.start_review(document_id)
 
     async def test_raises_document_not_ready_when_content_not_ready(self) -> None:
         svc = _make_service(content=_make_not_ready_content())
+        document_id = uuid.uuid4()
 
         with pytest.raises(service.DocumentNotReadyError):
-            await svc.start_review(uuid.uuid4())
+            await svc.start_review(document_id)
 
     async def test_returns_pending_job_on_success(self) -> None:
         svc = _make_service(content=_make_ready_content())

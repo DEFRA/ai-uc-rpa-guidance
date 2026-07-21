@@ -111,11 +111,10 @@ class TestReviewerQuoteValidator:
 
     async def test_paraphrased_quote_is_rejected(self) -> None:
         output = make_output([make_finding("The case worker should complete the form")])
+        ctx = StubRunContext(deps=make_deps())
 
         with pytest.raises(pydantic_ai.ModelRetry) as exc_info:
-            await reviewer.validate_quotes_are_verbatim(
-                StubRunContext(deps=make_deps()), output
-            )
+            await reviewer.validate_quotes_are_verbatim(ctx, output)
 
         assert "verbatim" in str(exc_info.value)
         assert "case worker should complete" in str(exc_info.value)
@@ -127,11 +126,10 @@ class TestReviewerQuoteValidator:
                 make_finding("invented text"),
             ]
         )
+        ctx = StubRunContext(deps=make_deps())
 
         with pytest.raises(pydantic_ai.ModelRetry) as exc_info:
-            await reviewer.validate_quotes_are_verbatim(
-                StubRunContext(deps=make_deps()), output
-            )
+            await reviewer.validate_quotes_are_verbatim(ctx, output)
 
         message = str(exc_info.value)
         assert "invented text" in message
@@ -214,11 +212,10 @@ class TestGoodPointQuoteValidator:
 
     async def test_unanchored_good_point_is_rejected(self) -> None:
         output = make_output([], good_points=[make_good_point("invented praise")])
+        ctx = StubRunContext(deps=make_deps())
 
         with pytest.raises(pydantic_ai.ModelRetry) as exc_info:
-            await reviewer.validate_quotes_are_verbatim(
-                StubRunContext(deps=make_deps()), output
-            )
+            await reviewer.validate_quotes_are_verbatim(ctx, output)
 
         assert "invented praise" in str(exc_info.value)
 
