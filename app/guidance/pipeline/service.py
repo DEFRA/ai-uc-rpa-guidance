@@ -1,3 +1,5 @@
+import logging
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -7,6 +9,8 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 
 from app.guidance.pipeline import models
+
+logger = logging.getLogger(__name__)
 
 _LIST_STYLES = frozenset(
     {
@@ -37,6 +41,7 @@ class DocxParser:
         self._stack: list[StackEntry] = []
         self._image_counter: int = 0
         self._pending_list_items: list[models.ListItemNode] = []
+        self._bookmark_to_section: dict[str, models.SectionNode] = {}
 
     def parse(
         self,
@@ -53,6 +58,7 @@ class DocxParser:
         self._stack = []
         self._image_counter = 0
         self._pending_list_items = []
+        self._bookmark_to_section = {}
 
         for element in doc.element.body:
             tag = element.tag
@@ -66,10 +72,73 @@ class DocxParser:
             elif tag == qn("w:p"):
                 self._process_paragraph(Paragraph(element, doc))
 
+            # Attribute any bookmarks in this element to the section that now sits
+            # on top of the stack — for a heading paragraph that is the heading just
+            # pushed; otherwise the enclosing section. Done after dispatch so a
+            # bookmark wrapping a heading maps to that heading, not its predecessor.
+            self._capture_bookmarks(element)
+
         self._flush_list_items()
         self._assign_numbers(self._tree.children)
+        self._resolve_hyperlink_anchors()
 
         return self._tree
+
+    def _capture_bookmarks(self, element: Any) -> None:
+        """Record each w:bookmarkStart name against the current section.
+
+        Bookmarks are the *targets* of Word cross-references. Capturing
+        name -> section lets _resolve_hyperlink_anchors rewrite links by bookmark
+        identity rather than by guessing from heading text.
+        """
+        if not self._stack:
+            return
+        section = self._stack[-1].section
+        for bookmark in element.iter(qn("w:bookmarkStart")):
+            name = bookmark.get(qn("w:name"))
+            if name:
+                self._bookmark_to_section.setdefault(name, section)
+
+    def _resolve_hyperlink_anchors(self) -> None:
+        """Rewrite internal '#<bookmark>' hrefs to '#<section number>'.
+
+        Resolvable anchors point at a captured bookmark; their href becomes the
+        target section's number, which the viewer turns into a section link.
+        Unresolvable anchors are left untouched and logged — an unresolved
+        cross-reference is a data signal, not something to drop silently.
+        """
+        numbers = {
+            name: section.number for name, section in self._bookmark_to_section.items()
+        }
+        for span in self._iter_spans():
+            href = span.hyperlink
+            if not href.startswith("#"):
+                continue
+            number = numbers.get(href[1:])
+            if number:
+                span.hyperlink = f"#{number}"
+            else:
+                logger.warning(
+                    "Unresolved intra-document link anchor %r in document %r",
+                    href,
+                    self._tree.title,
+                )
+
+    def _iter_spans(self) -> Iterator[models.InlineSpan]:
+        """Yield every InlineSpan in the tree, in document order."""
+
+        def walk(section: models.SectionNode) -> Iterator[models.InlineSpan]:
+            for node in section.content:
+                if isinstance(node, models.ParagraphNode):
+                    yield from node.spans
+                elif isinstance(node, models.ListNode):
+                    for item in node.items:
+                        yield from item.spans
+            for child in section.children:
+                yield from walk(child)
+
+        for section in self._tree.children:
+            yield from walk(section)
 
     def _process_paragraph(self, paragraph: Paragraph) -> None:
         style: str = paragraph.style.name if paragraph.style else ""

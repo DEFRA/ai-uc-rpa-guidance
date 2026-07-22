@@ -344,6 +344,33 @@ class TestTitleInference:
         assert tree.title == "Style Title"
 
 
+def _add_bookmark(paragraph, name: str, bookmark_id: int = 0) -> None:
+    """Wrap a bookmarkStart/End with the given name into a paragraph element.
+
+    Mirrors how Word marks a cross-reference target (e.g. on a heading).
+    """
+    from docx.oxml.ns import qn
+    from lxml import etree
+
+    start = etree.SubElement(paragraph._element, qn("w:bookmarkStart"))
+    start.set(qn("w:id"), str(bookmark_id))
+    start.set(qn("w:name"), name)
+    end = etree.SubElement(paragraph._element, qn("w:bookmarkEnd"))
+    end.set(qn("w:id"), str(bookmark_id))
+
+
+def _add_anchor_link(paragraph, anchor: str, text: str) -> None:
+    """Append a w:hyperlink with only a w:anchor (an internal cross-reference)."""
+    from docx.oxml.ns import qn
+    from lxml import etree
+
+    hyperlink = etree.SubElement(paragraph._element, qn("w:hyperlink"))
+    hyperlink.set(qn("w:anchor"), anchor)
+    run = etree.SubElement(hyperlink, qn("w:r"))
+    t_elem = etree.SubElement(run, qn("w:t"))
+    t_elem.text = text
+
+
 class TestParserHyperlinks:
     def test_hyperlink_in_span(self):
         """w:hyperlink elements in a paragraph produce InlineSpan.hyperlink with the target URL."""
@@ -419,23 +446,61 @@ class TestParserHyperlinks:
         assert after.text == " after text"
         assert after.hyperlink == ""
 
-    def test_hyperlink_anchor_internal_link(self):
-        """A w:hyperlink with only w:anchor (no r:id) is an internal document link
-        (e.g. a TOC entry or cross-reference to a bookmark) and must not be dropped."""
-        from docx.oxml.ns import qn
-        from lxml import etree
+    def test_internal_link_resolves_to_section_number(self):
+        """A cross-reference to a bookmark on a later heading is rewritten from the
+        raw bookmark anchor to that section's positional number."""
+        doc = Document()
+        doc.add_heading("Intro", level=1)  # section 1
+        para = doc.add_paragraph()
+        _add_anchor_link(para, "_Foo_1", "go to foo")
+
+        foo = doc.add_heading("Foo bar", level=1)  # section 2
+        _add_bookmark(foo, "_Foo_1")
+        doc.add_paragraph("Foo body.")
+
+        tree = service.parse_doc(doc, title="InternalLinkTest")
+
+        intro = tree.children[0]
+        paras = [n for n in intro.content if isinstance(n, models.ParagraphNode)]
+        hyperlinked = [s for s in paras[0].spans if s.hyperlink]
+        assert len(hyperlinked) == 1
+        assert hyperlinked[0].text == "go to foo"
+        assert hyperlinked[0].hyperlink == "#2"
+
+    def test_internal_link_resolves_renamed_bookmark(self):
+        """Resolution is by bookmark identity, not heading text: a bookmark whose
+        name bears no textual relation to its heading still resolves. This is the
+        case a frontend slug heuristic can never recover."""
+        doc = Document()
+        doc.add_heading("First", level=1)  # section 1
+        para = doc.add_paragraph()
+        _add_anchor_link(para, "_Alias", "see the other section")
+
+        target = doc.add_heading("Totally Different", level=1)  # section 2
+        _add_bookmark(target, "_Alias")
+        doc.add_paragraph("Target body.")
+
+        tree = service.parse_doc(doc, title="RenamedBookmarkTest")
+
+        first = tree.children[0]
+        paras = [n for n in first.content if isinstance(n, models.ParagraphNode)]
+        hyperlinked = [s for s in paras[0].spans if s.hyperlink]
+        assert len(hyperlinked) == 1
+        assert hyperlinked[0].hyperlink == "#2"
+
+    def test_internal_link_unresolvable_anchor_preserved_and_logged(self, caplog):
+        """An anchor with no matching bookmarkStart (e.g. a bare TOC anchor) is left
+        untouched and logged — an unresolved cross-reference is a data signal, not
+        something to drop silently."""
+        import logging
 
         doc = Document()
         doc.add_heading("Links", level=1)
         para = doc.add_paragraph()
+        _add_anchor_link(para, "_Toc123456", "back to top")
 
-        hyperlink_elem = etree.SubElement(para._element, qn("w:hyperlink"))
-        hyperlink_elem.set(qn("w:anchor"), "_Toc123456")
-        run_elem = etree.SubElement(hyperlink_elem, qn("w:r"))
-        t_elem = etree.SubElement(run_elem, qn("w:t"))
-        t_elem.text = "back to top"
-
-        tree = service.parse_doc(doc, title="AnchorLinkTest")
+        with caplog.at_level(logging.WARNING):
+            tree = service.parse_doc(doc, title="AnchorLinkTest")
 
         section = tree.children[0]
         paras = [n for n in section.content if isinstance(n, models.ParagraphNode)]
@@ -444,6 +509,7 @@ class TestParserHyperlinks:
         assert len(hyperlinked) == 1
         assert hyperlinked[0].text == "back to top"
         assert hyperlinked[0].hyperlink == "#_Toc123456"
+        assert "#_Toc123456" in caplog.text
 
 
 class TestParserImageEdgeCases:
