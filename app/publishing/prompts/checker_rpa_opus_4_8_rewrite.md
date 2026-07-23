@@ -134,7 +134,9 @@ Do NOT flag acronyms, initialisms, product/scheme names, case or reference codes
 domain jargon, or proper nouns merely for not being dictionary words - only when
 they are inconsistent with how the same item is spelled elsewhere in the supplied
 content. Do NOT flag British/American spelling, hyphenation, or capitalisation
-preferences. You cannot run a spell-checker: raise only clear, specific instances
+preferences (sentence vs title case) - but DO flag, under (b), a scheme,
+case, or reference code shown in FULL CAPITALS where the same code is
+written in mixed case elsewhere. You cannot run a spell-checker: raise only clear, specific instances
 you can quote; never say "there may be typos".
 Severity: an inconsistent term/name/code, or a clear misspelling of a meaningful
 word, is medium (it breaches S7 - the document does not read as a final,
