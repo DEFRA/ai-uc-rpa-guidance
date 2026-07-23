@@ -195,50 +195,80 @@ class DocxParser:
         self._pending_list_items.clear()
 
     def _parse_spans(self, paragraph: Paragraph) -> list[models.InlineSpan]:
+        """Build inline spans from a paragraph, one span per w:hyperlink or bare w:r.
+
+        A w:hyperlink is a single link unit even when Word has split its anchor text
+        across several runs (revision/proofing boundaries). Dispatching on the inline
+        children in document order — rather than flattening every descendant run —
+        keeps each hyperlink whole and each plain run distinct.
+        """
         spans: list[models.InlineSpan] = []
 
-        for run_elem in paragraph._element.iter(qn("w:r")):
-            text = "".join(node.text or "" for node in run_elem.findall(qn("w:t")))
-            if not text:
+        for child in paragraph._element:
+            tag = child.tag
+            if tag == qn("w:hyperlink"):
+                span = self._hyperlink_span(child, paragraph)
+            elif tag == qn("w:r"):
+                span = self._run_span(child)
+            else:
                 continue
 
-            rpr = run_elem.find(qn("w:rPr"))
-            bold, italic, underline, color = self._extract_run_formatting(rpr)
-            hyperlink = self._enclosing_hyperlink_target(run_elem, paragraph)
-
-            spans.append(
-                models.InlineSpan(
-                    text=text,
-                    bold=bold,
-                    italic=italic,
-                    underline=underline,
-                    hyperlink=hyperlink,
-                    color=color,
-                )
-            )
+            if span is not None:
+                spans.append(span)
 
         return spans
 
-    @staticmethod
-    def _enclosing_hyperlink_target(run_elem: Any, paragraph: Paragraph) -> str:
-        """Return the URL/anchor of the nearest w:hyperlink ancestor of run_elem, if any.
+    def _hyperlink_span(
+        self, hyperlink_elem: Any, paragraph: Paragraph
+    ) -> models.InlineSpan | None:
+        """Merge a w:hyperlink's runs into one span carrying the resolved target once.
 
-        Resolved directly from run_elem's own ancestry rather than a separately-built
-        id()-keyed lookup table, which is unsafe: lxml element proxies are ephemeral,
-        and CPython can reuse a garbage-collected proxy's id() for an unrelated object,
-        silently misattributing or dropping hyperlinks.
+        Formatting is taken from the first run — a hyperlink's anchor text is uniformly
+        styled in practice, so this yields a single clean link rather than one fragment
+        per run.
         """
-        elem = run_elem.getparent()
-        while elem is not None and elem.tag != qn("w:hyperlink"):
-            elem = elem.getparent()
-        if elem is None:
-            return ""
+        runs = list(hyperlink_elem.iter(qn("w:r")))
+        text = "".join(
+            node.text or "" for run in runs for node in run.findall(qn("w:t"))
+        )
+        if not text:
+            return None
 
-        r_id = elem.get(qn("r:id"))
+        rpr = runs[0].find(qn("w:rPr")) if runs else None
+        bold, italic, underline, color = self._extract_run_formatting(rpr)
+        return models.InlineSpan(
+            text=text,
+            bold=bold,
+            italic=italic,
+            underline=underline,
+            hyperlink=self._hyperlink_target(hyperlink_elem, paragraph),
+            color=color,
+        )
+
+    def _run_span(self, run_elem: Any) -> models.InlineSpan | None:
+        """Build a span from a single bare run, or None if it has no text."""
+        text = "".join(node.text or "" for node in run_elem.findall(qn("w:t")))
+        if not text:
+            return None
+
+        rpr = run_elem.find(qn("w:rPr"))
+        bold, italic, underline, color = self._extract_run_formatting(rpr)
+        return models.InlineSpan(
+            text=text,
+            bold=bold,
+            italic=italic,
+            underline=underline,
+            color=color,
+        )
+
+    @staticmethod
+    def _hyperlink_target(hyperlink_elem: Any, paragraph: Paragraph) -> str:
+        """Return the URL (external r:id) or '#anchor' (internal) of a w:hyperlink."""
+        r_id = hyperlink_elem.get(qn("r:id"))
         if r_id and r_id in paragraph.part.rels:
             return str(paragraph.part.rels[r_id].target_ref)
 
-        anchor = elem.get(qn("w:anchor"))
+        anchor = hyperlink_elem.get(qn("w:anchor"))
         return f"#{anchor}" if anchor else ""
 
     @staticmethod
