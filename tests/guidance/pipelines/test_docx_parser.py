@@ -404,6 +404,96 @@ class TestParserHyperlinks:
         assert hyperlinked[0].text == "click here"
         assert hyperlinked[0].hyperlink == url
 
+    def test_split_hyperlink_runs_coalesce_to_one_link(self):
+        """A single w:hyperlink whose anchor text Word split across several runs must
+        yield ONE span / ONE Markdown link, not one per run.
+
+        Mirrors the real source XML in sections 4.1/4.2: a lone <w:hyperlink> element
+        containing three <w:r> runs ("SFI", " ", "SITI Agri Basic Navigation"), each
+        with an rStyle=Hyperlink rPr. Parsing per-run previously emitted three adjacent
+        links to the identical URL.
+        """
+        from docx.opc.constants import RELATIONSHIP_TYPE as RT
+        from docx.oxml.ns import qn
+        from lxml import etree
+
+        from app.guidance.pipeline.renderers import markdown as markdown_renderer
+
+        url = "https://example.com/siti-agri-basic-navigation-guide"
+
+        doc = Document()
+        doc.add_heading("Links", level=1)
+        para = doc.add_paragraph()
+
+        r_id = para.part.rels.get_or_add_ext_rel(RT.HYPERLINK, url)
+        hyperlink_elem = etree.SubElement(para._element, qn("w:hyperlink"))
+        hyperlink_elem.set(qn("r:id"), r_id)
+        for fragment in ("SFI", " ", "SITI Agri Basic Navigation"):
+            run_elem = etree.SubElement(hyperlink_elem, qn("w:r"))
+            rpr = etree.SubElement(run_elem, qn("w:rPr"))
+            style = etree.SubElement(rpr, qn("w:rStyle"))
+            style.set(qn("w:val"), "Hyperlink")
+            t_elem = etree.SubElement(run_elem, qn("w:t"))
+            t_elem.set(qn("xml:space"), "preserve")
+            t_elem.text = fragment
+
+        tree = service.parse_doc(doc, title="SplitHyperlinkTest")
+
+        section = tree.children[0]
+        paras = [n for n in section.content if isinstance(n, models.ParagraphNode)]
+        assert len(paras) == 1
+        hyperlinked = [s for s in paras[0].spans if s.hyperlink]
+        assert len(hyperlinked) == 1
+        assert hyperlinked[0].text == "SFI SITI Agri Basic Navigation"
+        assert hyperlinked[0].hyperlink == url
+
+        # The user-visible goal: exactly one Markdown link, not three.
+        rendered = markdown_renderer.section_to_markdown(section)
+        assert rendered.count(f"](<{url}>)") == 1
+
+    def test_empty_hyperlink_produces_no_span(self):
+        """A w:hyperlink carrying no text (its runs have no w:t) yields no span, and
+        does not disturb the surrounding runs."""
+        from docx.oxml.ns import qn
+        from lxml import etree
+
+        doc = Document()
+        doc.add_heading("Links", level=1)
+        para = doc.add_paragraph()
+        para.add_run("visible text")
+
+        # A hyperlink element with a run but no w:t content — nothing to render.
+        hyperlink_elem = etree.SubElement(para._element, qn("w:hyperlink"))
+        hyperlink_elem.set(qn("w:anchor"), "_Somewhere")
+        etree.SubElement(hyperlink_elem, qn("w:r"))
+
+        tree = service.parse_doc(doc, title="EmptyHyperlinkTest")
+
+        section = tree.children[0]
+        paras = [n for n in section.content if isinstance(n, models.ParagraphNode)]
+        assert len(paras) == 1
+        spans = paras[0].spans
+        assert [s.text for s in spans] == ["visible text"]
+        assert all(s.hyperlink == "" for s in spans)
+
+    def test_empty_bare_run_produces_no_span(self):
+        """A bare run with no w:t text contributes no span; real runs are unaffected."""
+        from docx.oxml.ns import qn
+        from lxml import etree
+
+        doc = Document()
+        doc.add_heading("Empty", level=1)
+        para = doc.add_paragraph()
+        etree.SubElement(para._element, qn("w:r"))  # empty run, no w:t
+        para.add_run("real text")
+
+        tree = service.parse_doc(doc, title="EmptyRunTest")
+
+        section = tree.children[0]
+        paras = [n for n in section.content if isinstance(n, models.ParagraphNode)]
+        assert len(paras) == 1
+        assert [s.text for s in paras[0].spans] == ["real text"]
+
     def test_hyperlink_survives_adjacent_plain_runs(self):
         """A hyperlink-wrapped run sandwiched between plain runs must not leak onto
         its neighbours (regression for the id()-collision bug: the hyperlink map was
