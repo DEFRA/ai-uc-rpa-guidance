@@ -319,6 +319,51 @@ class TestManifestEndpoint:
         assert response.status_code == 422
 
 
+class TestContentEndpoint:
+    """Test GET /guidance/documents/{document_id}/content."""
+
+    _DOCUMENT_ID = "12345678-1234-5678-1234-567812345678"
+
+    def test_returns_full_document_markdown(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+    ) -> None:
+        mock_s3_repo.download_content.return_value = (
+            "## 1 Intro\n\nContent.\n\n## 2 Next\n\nMore content."
+        )
+
+        response = client_with_s3.get(
+            f"/guidance/documents/{self._DOCUMENT_ID}/content"
+        )
+
+        assert response.status_code == 200
+        assert "text/markdown" in response.headers["content-type"]
+        assert "## 1 Intro" in response.text
+        assert "## 2 Next" in response.text
+
+    def test_returns_404_when_content_missing(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+    ) -> None:
+        mock_s3_repo.download_content.side_effect = _no_such_key_error()
+
+        response = client_with_s3.get(
+            f"/guidance/documents/{self._DOCUMENT_ID}/content"
+        )
+
+        assert response.status_code == 404
+
+    def test_returns_422_for_invalid_document_id(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+    ) -> None:
+        response = client_with_s3.get("/guidance/documents/not-a-uuid/content")
+
+        assert response.status_code == 422
+
+
 class TestSectionEndpoint:
     """Test GET /guidance/documents/{document_id}/sections/{section_number}."""
 

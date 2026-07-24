@@ -190,6 +190,52 @@ async def get_document_manifest(
 
 
 @router.get(
+    "/{document_id}/content",
+    status_code=fastapi.status.HTTP_200_OK,
+    responses={
+        fastapi.status.HTTP_200_OK: {
+            "description": "Full document Markdown content",
+            "content": {"text/markdown": {}},
+        },
+        fastapi.status.HTTP_404_NOT_FOUND: {
+            "description": "Content not found — document may not have completed processing",
+        },
+    },
+)
+async def get_document_content(
+    document_id: uuid.UUID,
+    s3_repo: Annotated[
+        s3_repository.AbstractGuidanceStorageRepository,
+        fastapi.Depends(dependencies.get_s3_repository),
+    ],
+) -> fastapi.Response:
+    """Return the full rendered Markdown for a parsed guidance document.
+
+    Args:
+        document_id: The guidance document UUID.
+        s3_repo: The S3 repository, injected via FastAPI DI.
+
+    Returns:
+        Markdown response with media type text/markdown.
+
+    Raises:
+        HTTPException: 404 if the document content has not been produced yet.
+    """
+    try:
+        content = await s3_repo.download_content(document_id)
+        return fastapi.Response(
+            content=content, media_type="text/markdown; charset=utf-8"
+        )
+    except botocore.exceptions.ClientError as exc:
+        if exc.response["Error"]["Code"] == "NoSuchKey":
+            raise fastapi.HTTPException(
+                status_code=fastapi.status.HTTP_404_NOT_FOUND,
+                detail="Content not found",
+            ) from exc
+        raise
+
+
+@router.get(
     "/{document_id}/sections/{section_number}",
     status_code=fastapi.status.HTTP_200_OK,
     responses={
