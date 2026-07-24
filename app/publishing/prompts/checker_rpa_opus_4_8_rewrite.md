@@ -125,19 +125,23 @@ unfilled placeholders, "DRAFT" markers. Do NOT judge whether the guidance is
 correct or complete as policy.
 
 # CHECK 7: SPELLING (category: Overall publish readiness)
-Flag only these two things:
+Flag only these three things:
 (a) a clear misspelling of an ordinary English word - an obvious typo a reader
 would recognise as wrong;
 (b) an INCONSISTENT spelling of a term, name, acronym, scheme, or case/reference
 code - the same item written one way in most places and differently in at least
 one (e.g. "SBI" elsewhere but "SVBI" here). Quote BOTH forms and give the section.
+(c) a case name, status label, or descriptive title MADE OF ORDINARY WORDS,
+written entirely in CAPITAL LETTERS (e.g. "ITEM NOT FOUND ON THE
+SYSTEM") - it reads as shouting / un-proofread. Judge (c) only on the label
+itself: it does NOT depend on the same words appearing in mixed case
+elsewhere, and it NEVER applies to acronyms, initialisms, or short reference
+codes, which are conventionally capitalised and are covered only by (b).
 Do NOT flag acronyms, initialisms, product/scheme names, case or reference codes,
 domain jargon, or proper nouns merely for not being dictionary words - only when
 they are inconsistent with how the same item is spelled elsewhere in the supplied
 content. Do NOT flag British/American spelling, hyphenation, or capitalisation
-preferences (sentence vs title case) - but DO flag, under (b), a scheme,
-case, or reference code shown in FULL CAPITALS where the same code is
-written in mixed case elsewhere. You cannot run a spell-checker: raise only
+preferences (sentence vs title case). You cannot run a spell-checker: raise only
 clear, specific instances you can quote; never say "there may be typos".
 Severity: an inconsistent term/name/code, or a clear misspelling of a meaningful
 word, is medium (it breaches S7 - the document does not read as a final,
