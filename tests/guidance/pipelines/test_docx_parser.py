@@ -3,6 +3,7 @@ import zlib
 
 from docx import Document
 from docx.shared import Inches
+from docx.text.paragraph import Paragraph
 
 from app.guidance.pipeline import models, service
 
@@ -199,7 +200,60 @@ class TestParserImages:
         assert text == "Select the binocular icon"
 
 
+def _set_num_id(paragraph: Paragraph, num_id: int) -> None:
+    """Attach an inline w:numPr/w:numId to a paragraph, as Word authors direct numbering.
+
+    numId=0 is the OOXML sentinel meaning "numbering removed" — the paragraph keeps its
+    list style but shows no bullet.
+    """
+    from docx.oxml.ns import qn
+    from lxml import etree
+
+    p_pr = paragraph._p.get_or_add_pPr()
+    num_pr = etree.SubElement(p_pr, qn("w:numPr"))
+    ilvl = etree.SubElement(num_pr, qn("w:ilvl"))
+    ilvl.set(qn("w:val"), "0")
+    num_id_elem = etree.SubElement(num_pr, qn("w:numId"))
+    num_id_elem.set(qn("w:val"), str(num_id))
+
+
 class TestParserLists:
+    def test_num_id_zero_is_not_a_bullet(self):
+        """A List-Bullet paragraph with numId=0 is prose, not a bullet (numbering removed).
+
+        Mirrors the SITI Tenure section where lead-in lines ("When you have the correct
+        case") share the List Bullet 4 style but carry numId=0, so Word draws no bullet —
+        only the numId!=0 action steps are bulleted.
+        """
+        doc = Document()
+        doc.add_heading("Steps", level=1)
+
+        step = doc.add_paragraph("Assign it to yourself", style="List Bullet")
+        _set_num_id(step, 5)
+
+        lead_in = doc.add_paragraph(
+            "When you have the correct case", style="List Bullet"
+        )
+        _set_num_id(lead_in, 0)
+
+        tree = service.parse_doc(doc, title="NumIdTest")
+        section = tree.children[0]
+        lists = [n for n in section.content if isinstance(n, models.ListNode)]
+        paras = [n for n in section.content if isinstance(n, models.ParagraphNode)]
+
+        # The numId!=0 line is the only bullet.
+        assert len(lists) == 1
+        assert len(lists[0].items) == 1
+        assert (
+            "".join(s.text for s in lists[0].items[0].spans) == "Assign it to yourself"
+        )
+
+        # The numId=0 line is a plain paragraph.
+        assert len(paras) == 1
+        assert (
+            "".join(s.text for s in paras[0].spans) == "When you have the correct case"
+        )
+
     def test_bullet_list_extraction(self):
         """Test that bullet list paragraphs are grouped into a ListNode."""
         doc = Document()

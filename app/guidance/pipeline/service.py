@@ -426,10 +426,17 @@ class DocxParser:
 
     @staticmethod
     def _is_list_paragraph(paragraph: Paragraph) -> bool:
+        # Direct numbering on the paragraph decides it, overriding the list style:
+        # numId=0 is the OOXML sentinel for "numbering removed" (no bullet), which is
+        # how Word un-bullets a lead-in line that still carries a List Bullet style.
+        num_pr = paragraph._element.find(f".//{qn('w:numPr')}")
+        if num_pr is not None:
+            num_id = num_pr.find(qn("w:numId"))
+            numbering_removed = num_id is not None and num_id.get(qn(_W_VAL)) == "0"
+            return not numbering_removed
+
         style_name = paragraph.style.name if paragraph.style else ""
-        if style_name in _LIST_STYLES:
-            return True
-        return paragraph._element.find(f".//{qn('w:numPr')}") is not None
+        return style_name in _LIST_STYLES
 
     @staticmethod
     def _get_list_level(paragraph: Paragraph) -> int:
