@@ -253,6 +253,21 @@ class TestMarkdownInlineFormatting:
         )
         assert "<u>underlined</u>" in md
 
+    def test_underlined_hyperlink_strips_underline(self):
+        """A hyperlink's intrinsic underline is decorative and must not be emitted."""
+        md = to_markdown(
+            self._section_with_span(
+                "UL",
+                InlineSpan(
+                    text="here",
+                    underline=True,
+                    hyperlink="https://example.com",
+                ),
+            )
+        )
+        assert "[here](<https://example.com>)" in md
+        assert "<u>" not in md
+
     def test_adjacent_bold_spans_no_collision(self):
         """Adjacent bold spans must not produce delimiter-collision artifacts."""
         md = to_markdown(
