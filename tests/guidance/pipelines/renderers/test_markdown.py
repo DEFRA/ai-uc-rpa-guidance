@@ -1,6 +1,7 @@
 from app.guidance.pipeline.models import (
     DocumentTree,
     ImageNode,
+    ImageSpan,
     InlineSpan,
     ListItemNode,
     ListNode,
@@ -75,6 +76,33 @@ class TestMarkdownRenderer:
     def test_image_rendering(self):
         md = to_markdown(self._make_tree())
         assert "![Diagram](output/images/img_1.png)" in md
+
+    def test_inline_image_span_rendered_within_text(self):
+        tree = DocumentTree(
+            title="T",
+            children=[
+                SectionNode(
+                    heading="S",
+                    level=1,
+                    number="1",
+                    content=[
+                        ListNode(
+                            items=[
+                                ListItemNode(
+                                    spans=[
+                                        InlineSpan(text="Select the "),
+                                        ImageSpan(rel_path="/img/icon.png"),
+                                        InlineSpan(text="binocular icon"),
+                                    ]
+                                )
+                            ]
+                        )
+                    ],
+                )
+            ],
+        )
+        md = to_markdown(tree)
+        assert "- Select the ![](/img/icon.png)binocular icon" in md
 
     def test_single_cell_table_renders_as_blockquote(self):
         tree = DocumentTree(

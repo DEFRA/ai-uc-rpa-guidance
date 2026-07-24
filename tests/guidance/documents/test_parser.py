@@ -55,6 +55,19 @@ def _make_docx_with_images(count: int = 1) -> bytes:
     return buf.getvalue()
 
 
+def _make_docx_with_inline_icon() -> bytes:
+    """Build a .docx whose bullet embeds an icon mid-sentence: text, image, text."""
+    doc = docx.Document()
+    doc.add_heading("Steps", level=1)
+    bullet = doc.add_paragraph(style="List Bullet")
+    bullet.add_run("Select the ")
+    bullet.add_run().add_picture(io.BytesIO(_make_png_bytes()))
+    bullet.add_run("binocular icon")
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
 def _make_document(
     path: str = "s3://source-bucket/doc-id/file-id",
 ) -> models.GuidanceDocument:
@@ -309,6 +322,24 @@ class TestPipelineDocumentParserImages:
         assert s3_repo.upload_image.call_count == 2
         filenames = [c.args[1] for c in s3_repo.upload_image.call_args_list]
         assert filenames == ["1_img_1.png", "2_img_1.png"]
+
+    @pytest.mark.asyncio
+    async def test_inline_icon_uploaded_and_linked_in_markdown(
+        self,
+        s3_repo: AsyncMock,
+    ) -> None:
+        """An icon embedded mid-sentence is uploaded and rendered inline in the bullet."""
+        s3_repo.download_docx.return_value = _make_docx_with_inline_icon()
+        parser_inst = parser.PipelineDocumentParser(s3_repo)
+        document = _make_document()
+
+        result = await parser_inst.parse(document)
+
+        assert result.status == models.ExtractionStatus.COMPLETE
+        s3_repo.upload_image.assert_called_once()
+        assert result.content is not None
+        rel_path = f"/guidance/documents/{document.id}/images/1_img_1.png"
+        assert f"Select the ![]({rel_path})binocular icon" in result.content
 
     @pytest.mark.asyncio
     async def test_image_upload_failure_returns_failed_status(

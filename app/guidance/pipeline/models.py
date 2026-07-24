@@ -48,24 +48,57 @@ class InlineSpan(Serializable):
 
 
 @dataclass
+class ImageSpan(Serializable):
+    """An image sitting inline within a paragraph's run sequence (e.g. an icon).
+
+    The inline counterpart of ImageNode: same blob-carrying shape, but it lives in a
+    span list rather than as a block figure. `span_type` discriminates it from a text
+    InlineSpan on deserialization; its absence means a plain text span.
+    """
+
+    rel_path: str = ""
+    alt_text: str = ""
+    data: bytes = field(default_factory=bytes)
+    ext: str = ".png"
+    span_type: str = field(default="image", init=False)
+    _skip_fields: frozenset[str] = field(
+        default=frozenset({"data", "ext", "_skip_fields"}), init=False, repr=False
+    )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ImageSpan:
+        return cls(rel_path=data.get("rel_path", ""), alt_text=data.get("alt_text", ""))
+
+
+Span = InlineSpan | ImageSpan
+
+
+def _span_from_dict(data: dict[str, Any]) -> Span:
+    """Rebuild a span, routing on the span_type discriminator (absent -> text)."""
+    if data.get("span_type") == "image":
+        return ImageSpan.from_dict(data)
+    return InlineSpan.from_dict(data)
+
+
+@dataclass
 class ParagraphNode(Serializable):
-    spans: list[InlineSpan]
+    spans: list[Span]
     node_type: str = field(default="paragraph", init=False)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ParagraphNode:
-        return cls(spans=[InlineSpan.from_dict(s) for s in data["spans"]])
+        return cls(spans=[_span_from_dict(s) for s in data["spans"]])
 
 
 @dataclass
 class ListItemNode(Serializable):
-    spans: list[InlineSpan]
+    spans: list[Span]
     level: int = 0
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ListItemNode:
         return cls(
-            spans=[InlineSpan.from_dict(s) for s in data["spans"]],
+            spans=[_span_from_dict(s) for s in data["spans"]],
             level=data.get("level", 0),
         )
 

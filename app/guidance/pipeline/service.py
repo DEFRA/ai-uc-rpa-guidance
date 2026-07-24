@@ -111,6 +111,8 @@ class DocxParser:
             name: section.number for name, section in self._bookmark_to_section.items()
         }
         for span in self._iter_spans():
+            if not isinstance(span, models.InlineSpan):
+                continue
             href = span.hyperlink
             if not href.startswith("#"):
                 continue
@@ -124,10 +126,10 @@ class DocxParser:
                     self._tree.title,
                 )
 
-    def _iter_spans(self) -> Iterator[models.InlineSpan]:
-        """Yield every InlineSpan in the tree, in document order."""
+    def _iter_spans(self) -> Iterator[models.Span]:
+        """Yield every span in the tree, in document order."""
 
-        def walk(section: models.SectionNode) -> Iterator[models.InlineSpan]:
+        def walk(section: models.SectionNode) -> Iterator[models.Span]:
             for node in section.content:
                 if isinstance(node, models.ParagraphNode):
                     yield from node.spans
@@ -144,24 +146,28 @@ class DocxParser:
         style: str = paragraph.style.name if paragraph.style else ""
         text: str = paragraph.text.strip()
 
-        image_node = self._extract_image(paragraph)
-        if image_node:
-            self._flush_list_items()
-            if self._stack:
-                self._stack[-1].section.content.append(image_node)
+        # An image-only paragraph is a block figure. A paragraph that also has text
+        # keeps its image inline as an ImageSpan via _parse_spans below — the image
+        # must not swallow the surrounding words.
+        if not text:
+            image_node = self._extract_image(paragraph)
+            if image_node:
+                self._flush_list_items()
+                if self._stack:
+                    self._stack[-1].section.content.append(image_node)
             return
 
         if style.startswith("Heading"):
             self._process_heading(text, style)
 
-        elif self._is_list_paragraph(paragraph) and text and self._stack:
+        elif self._is_list_paragraph(paragraph) and self._stack:
             spans = self._parse_spans(paragraph)
             level = self._get_list_level(paragraph)
             self._pending_list_items.append(
                 models.ListItemNode(spans=spans, level=level)
             )
 
-        elif text and self._stack:
+        elif self._stack:
             self._flush_list_items()
             spans = self._parse_spans(paragraph)
             self._stack[-1].section.content.append(models.ParagraphNode(spans=spans))
@@ -194,22 +200,24 @@ class DocxParser:
 
         self._pending_list_items.clear()
 
-    def _parse_spans(self, paragraph: Paragraph) -> list[models.InlineSpan]:
+    def _parse_spans(self, paragraph: Paragraph) -> list[models.Span]:
         """Build inline spans from a paragraph, one span per w:hyperlink or bare w:r.
 
         A w:hyperlink is a single link unit even when Word has split its anchor text
         across several runs (revision/proofing boundaries). Dispatching on the inline
         children in document order — rather than flattening every descendant run —
-        keeps each hyperlink whole and each plain run distinct.
+        keeps each hyperlink whole, each plain run distinct, and each inline image
+        (e.g. an icon) in place as an ImageSpan.
         """
-        spans: list[models.InlineSpan] = []
+        spans: list[models.Span] = []
 
         for child in paragraph._element:
             tag = child.tag
+            span: models.Span | None
             if tag == qn("w:hyperlink"):
                 span = self._hyperlink_span(child, paragraph)
             elif tag == qn("w:r"):
-                span = self._run_span(child)
+                span = self._run_span(child, paragraph)
             else:
                 continue
 
@@ -245,21 +253,30 @@ class DocxParser:
             color=color,
         )
 
-    def _run_span(self, run_elem: Any) -> models.InlineSpan | None:
-        """Build a span from a single bare run, or None if it has no text."""
-        text = "".join(node.text or "" for node in run_elem.findall(qn("w:t")))
-        if not text:
-            return None
+    def _run_span(self, run_elem: Any, paragraph: Paragraph) -> models.Span | None:
+        """Build a span from a single bare run.
 
-        rpr = run_elem.find(qn("w:rPr"))
-        bold, italic, underline, color = self._extract_run_formatting(rpr)
-        return models.InlineSpan(
-            text=text,
-            bold=bold,
-            italic=italic,
-            underline=underline,
-            color=color,
-        )
+        A run with text yields a formatted InlineSpan; a text-less run holding an
+        inline image (icon) yields an ImageSpan; an empty run yields None.
+        """
+        text = "".join(node.text or "" for node in run_elem.findall(qn("w:t")))
+        if text:
+            rpr = run_elem.find(qn("w:rPr"))
+            bold, italic, underline, color = self._extract_run_formatting(rpr)
+            return models.InlineSpan(
+                text=text,
+                bold=bold,
+                italic=italic,
+                underline=underline,
+                color=color,
+            )
+
+        found = self._run_image_blob(run_elem, paragraph.part.rels)
+        if found is not None:
+            image_blob, ext = found
+            return models.ImageSpan(data=image_blob, ext=ext)
+
+        return None
 
     @staticmethod
     def _hyperlink_target(hyperlink_elem: Any, paragraph: Paragraph) -> str:
@@ -318,32 +335,43 @@ class DocxParser:
 
         return models.TableNode(headers=headers, rows=body)
 
+    _BLIP_PATH = (
+        f".//{qn('wp:inline')}/{qn('a:graphic')}/{qn('a:graphicData')}"
+        f"/{qn('pic:pic')}/{qn('pic:blipFill')}/{qn('a:blip')}"
+    )
+
+    @staticmethod
+    def _run_image_blob(run_elem: Any, rels: Any) -> tuple[bytes, str] | None:
+        """Return (blob, ext) for the first inline image in a run, or None.
+
+        The single place that turns a pic:blip + relationship into image bytes,
+        shared by the block-figure path (_extract_image) and inline runs (_run_span).
+        """
+        for blip in run_elem.findall(DocxParser._BLIP_PATH):
+            embed_id = blip.get(qn("r:embed"))
+            if embed_id is None:
+                continue
+            rel = rels.get(embed_id)
+            if rel is None:
+                continue
+            ext = Path(rel.target_part.partname).suffix or ".png"
+            return rel.target_part.blob, ext
+        return None
+
     def _extract_image(self, paragraph: Paragraph) -> models.ImageNode | None:
         for run in paragraph.runs:
-            inline_shapes = run.element.findall(
-                f".//{qn('wp:inline')}/{qn('a:graphic')}/{qn('a:graphicData')}"
-                f"/{qn('pic:pic')}/{qn('pic:blipFill')}/{qn('a:blip')}",
+            found = self._run_image_blob(run.element, paragraph.part.rels)
+            if found is None:
+                continue
+
+            image_blob, ext = found
+            self._image_counter += 1
+            return models.ImageNode(
+                rel_path="",
+                alt_text=paragraph.text.strip() or f"img_{self._image_counter}{ext}",
+                data=image_blob,
+                ext=ext,
             )
-            for blip in inline_shapes:
-                embed_id = blip.get(qn("r:embed"))
-                if embed_id is None:
-                    continue
-
-                rel = paragraph.part.rels.get(embed_id)
-                if rel is None:
-                    continue
-
-                self._image_counter += 1
-                image_blob = rel.target_part.blob
-                ext = Path(rel.target_part.partname).suffix or ".png"
-
-                return models.ImageNode(
-                    rel_path="",
-                    alt_text=paragraph.text.strip()
-                    or f"img_{self._image_counter}{ext}",
-                    data=image_blob,
-                    ext=ext,
-                )
 
         return None
 
@@ -398,10 +426,17 @@ class DocxParser:
 
     @staticmethod
     def _is_list_paragraph(paragraph: Paragraph) -> bool:
+        # Direct numbering on the paragraph decides it, overriding the list style:
+        # numId=0 is the OOXML sentinel for "numbering removed" (no bullet), which is
+        # how Word un-bullets a lead-in line that still carries a List Bullet style.
+        num_pr = paragraph._element.find(f".//{qn('w:numPr')}")
+        if num_pr is not None:
+            num_id = num_pr.find(qn("w:numId"))
+            numbering_removed = num_id is not None and num_id.get(qn(_W_VAL)) == "0"
+            return not numbering_removed
+
         style_name = paragraph.style.name if paragraph.style else ""
-        if style_name in _LIST_STYLES:
-            return True
-        return paragraph._element.find(f".//{qn('w:numPr')}") is not None
+        return style_name in _LIST_STYLES
 
     @staticmethod
     def _get_list_level(paragraph: Paragraph) -> int:

@@ -4,10 +4,13 @@ from functools import singledispatch
 from app.guidance.pipeline import models
 
 
-def _render_spans(spans: list[models.InlineSpan]) -> str:
+def _render_spans(spans: list[models.Span]) -> str:
     """Render inline spans using HTML tags for unambiguous nested formatting."""
     parts: list[str] = []
     for span in spans:
+        if isinstance(span, models.ImageSpan):
+            parts.append(f"![{span.alt_text}]({span.rel_path})")
+            continue
         text = html.escape(span.text)
         if span.hyperlink:
             href = html.escape(span.hyperlink, quote=True)
