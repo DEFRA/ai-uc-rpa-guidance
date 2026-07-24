@@ -3,17 +3,6 @@
 import pydantic
 
 
-class AnalyseRequest(pydantic.BaseModel):
-    """Request body for the QA analysis endpoint."""
-
-    document_text: str = pydantic.Field(
-        ...,
-        min_length=1,
-        description="The full text of the guidance document to analyse for quality issues",
-        examples=["# Guidance Title\n\nThis is the guidance content..."],
-    )
-
-
 class TokenUsage(pydantic.BaseModel):
     """Token usage metadata from the LLM response."""
 

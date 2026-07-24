@@ -155,15 +155,9 @@ the section heading or numbered section (e.g. "Section 4. Agreement Holder
 Contact" or "Introduction"). No page numbers - they aren't in the markdown.
 List each occurrence separately with its own location; never write "throughout".
 
-# DOCUMENT TITLE
-Report the exact document title verbatim - no shortening or rewording. If no
-explicit title is visible, use the first heading in the supplied content. Never
-omit it.
-
 # OUTPUT
 Produce this structure even if there are zero findings.
-1. Document title: <verbatim>
-2. What needs fixing - one entry per issue, each with:
+1. What needs fixing - one entry per issue, each with:
     - category: [Headings and layout / Images and formatting /
       Sensitive information / Links / Overall publish readiness]
     - section:
@@ -172,9 +166,9 @@ Produce this structure even if there are zero findings.
     - severity: (matches why_it_matters)
     - confidence: (high / moderate / low)
     - recommendation: (the exact fix)
-3. What is already good: brief list of what meets standards.
-4. Summary: short plain-English overview.
-5. Verdict: "Ready to send to Publishing" OR "Not ready - changes needed".
+2. What is already good: brief list of what meets standards.
+3. Summary: short plain-English overview.
+4. Verdict: "Ready to send to Publishing" OR "Not ready - changes needed".
    Rule: any finding at medium/high/critical severity means Not ready; only
    info/low means Ready. Decide this LAST, after the findings, and keep it
    consistent with them.

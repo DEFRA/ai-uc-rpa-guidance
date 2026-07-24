@@ -9,9 +9,11 @@ import uuid
 from dataclasses import dataclass
 from typing import Protocol
 
+from app.guidance.documents import api_schemas as guidance_api_schemas
 from app.guidance.documents import models as guidance_models
 from app.guidance.documents import repository as guidance_repository
-from app.guidance.documents import s3_repository
+from app.guidance.documents import s3_repository, sectioning
+from app.publishing import models as publishing_models
 
 
 @dataclass
@@ -20,7 +22,7 @@ class DocumentContent:
 
     document_id: uuid.UUID
     title: str | None
-    content: str
+    sections: list[publishing_models.DocumentSection]
     ready: bool
 
 
@@ -44,7 +46,8 @@ class GuidanceDocumentContentSource:
     """Adapter that satisfies DocumentContentSource using the guidance sub-domain.
 
     Checks existence and status via the Mongo-backed guidance repository, then
-    fetches the authoritative parsed markdown from S3.
+    assembles each top-level section's subtree Markdown from the parsed
+    artefacts in S3 (manifest + per-section files).
     """
 
     def __init__(
@@ -70,7 +73,8 @@ class GuidanceDocumentContentSource:
         Returns:
             None if the document does not exist.
             DocumentContent(ready=False) if status is not COMPLETE.
-            DocumentContent(ready=True) with markdown fetched from S3 if COMPLETE.
+            DocumentContent(ready=True) with each top-level section's subtree
+            Markdown assembled from S3 if COMPLETE.
         """
         doc = await self._guidance_repo.get_document(document_id)
 
@@ -81,15 +85,30 @@ class GuidanceDocumentContentSource:
             return DocumentContent(
                 document_id=document_id,
                 title=doc.title,
-                content="",
+                sections=[],
                 ready=False,
             )
 
-        markdown = await self._storage_repo.download_content(document_id)
+        raw_manifest = await self._storage_repo.download_manifest(document_id)
+        manifest = guidance_api_schemas.DocumentManifestResponse.model_validate_json(
+            raw_manifest
+        )
+
+        sections = [
+            publishing_models.DocumentSection(
+                number=number,
+                text=await sectioning.fetch_joined_sections(
+                    self._storage_repo,
+                    document_id,
+                    sectioning.section_and_descendant_numbers(manifest, number),
+                ),
+            )
+            for number in sectioning.top_level_section_numbers(manifest)
+        ]
 
         return DocumentContent(
             document_id=document_id,
             title=doc.title,
-            content=markdown,
+            sections=sections,
             ready=True,
         )

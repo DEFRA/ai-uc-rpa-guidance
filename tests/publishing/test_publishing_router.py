@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import fastapi.testclient
 
 import app.entrypoints.fastapi
-from app.publishing.jobs import dependencies, documents, models, service
+from app.publishing.jobs import dependencies, models, service
 
 DOCUMENT_ID = uuid.uuid4()
 JOB_ID = uuid.uuid4()
@@ -23,15 +23,6 @@ def _make_pending_job() -> models.PublishingJob:
         status=models.JobStatus.PENDING,
         created_at=NOW,
         updated_at=NOW,
-    )
-
-
-def _ready_content() -> documents.DocumentContent:
-    return documents.DocumentContent(
-        document_id=DOCUMENT_ID,
-        title="Test Document",
-        content="# Test Document\n\nThis is a test.",
-        ready=True,
     )
 
 

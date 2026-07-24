@@ -8,7 +8,13 @@ from typing import Annotated
 import botocore.exceptions
 import fastapi
 
-from app.guidance.documents import api_schemas, dependencies, s3_repository, service
+from app.guidance.documents import (
+    api_schemas,
+    dependencies,
+    s3_repository,
+    sectioning,
+    service,
+)
 
 _IMAGE_CONTENT_TYPES: dict[str, str] = {
     ".png": "image/png",
@@ -235,33 +241,6 @@ async def get_document_content(
         raise
 
 
-def _section_and_descendant_numbers(
-    manifest: api_schemas.DocumentManifestResponse, section_number: str
-) -> list[str]:
-    """Return section_number followed by all its descendants, in document order.
-
-    Traverses the manifest's parent->children adjacency depth-first, so the
-    result is exactly the contiguous run of section numbers that a section and
-    its nested children occupy within the full document.
-    """
-    nodes_by_number = {node.number: node for node in manifest.sections}
-    if section_number not in nodes_by_number:
-        return [section_number]
-
-    ordered: list[str] = []
-
-    def visit(number: str) -> None:
-        ordered.append(number)
-        node = nodes_by_number.get(number)
-        if node is None:
-            return
-        for child_number in node.children:
-            visit(child_number)
-
-    visit(section_number)
-    return ordered
-
-
 @router.get(
     "/{document_id}/sections/{section_number}",
     status_code=fastapi.status.HTTP_200_OK,
@@ -328,13 +307,12 @@ async def get_document_section(
         manifest = api_schemas.DocumentManifestResponse.model_validate_json(
             raw_manifest
         )
-        section_numbers = _section_and_descendant_numbers(manifest, section_number)
-
-        parts = [
-            (await s3_repo.download_section(document_id, number)).rstrip("\n")
-            for number in section_numbers
-        ]
-        content = "\n\n".join(parts) + "\n"
+        section_numbers = sectioning.section_and_descendant_numbers(
+            manifest, section_number
+        )
+        content = await sectioning.fetch_joined_sections(
+            s3_repo, document_id, section_numbers
+        )
 
         return fastapi.Response(
             content=content, media_type="text/markdown; charset=utf-8"

@@ -71,7 +71,8 @@ class PublishingJobService:
         analysis_job = models.AnalysisJob(
             job_id=job.id,
             document_id=document_id,
-            document_text=content.content,
+            document_title=content.title or "Untitled document",
+            sections=content.sections,
         )
         await self._job_submitter.submit(analysis_job)
 

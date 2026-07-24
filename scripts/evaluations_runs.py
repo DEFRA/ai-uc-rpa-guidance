@@ -31,9 +31,9 @@ DEFAULT_UPLOADER = "http://localhost:7337"
 DEFAULT_CONCURRENCY = 5
 REQUEST_TIMEOUT_S = 600.0
 PARSE_TIMEOUT_S = 180.0
-ANALYSE_TIMEOUT_S = 600.0
-# A critique run iterates the document for minutes; the analyse timeout is far too
-# tight for it.
+# Publishing analyses one top-level section per LLM call, sequentially, so a
+# many-section document legitimately runs for tens of minutes.
+ANALYSE_TIMEOUT_S = 3600.0
 CRITIQUE_TIMEOUT_S = 1800.0
 POLL_INTERVAL_S = 2.0
 _OUTPUT_DIRNAME = Path("data") / "output"

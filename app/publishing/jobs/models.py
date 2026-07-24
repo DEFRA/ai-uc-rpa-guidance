@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from app.publishing import models as publishing_models
+
 
 class JobStatus(StrEnum):
     """Lifecycle status of a publishing analysis job."""
@@ -60,7 +62,8 @@ class AnalysisJob:
 
     job_id: uuid.UUID
     document_id: uuid.UUID
-    document_text: str
+    document_title: str
+    sections: list[publishing_models.DocumentSection]
 
 
 class JobNotFoundError(Exception):
