@@ -5,6 +5,7 @@ import pytest
 from app.guidance.pipeline.models import (
     DocumentTree,
     ImageNode,
+    ImageSpan,
     InlineSpan,
     ListItemNode,
     ListNode,
@@ -37,6 +38,18 @@ class TestInlineSpan:
         assert span.hyperlink == ""
 
 
+class TestImageSpan:
+    def test_to_dict_omits_blob(self):
+        span = ImageSpan(rel_path="/img/icon.png", alt_text="", data=b"\x89PNG")
+        d = span.to_dict()
+        assert d == {"span_type": "image", "rel_path": "/img/icon.png"}
+
+    def test_from_dict(self):
+        span = ImageSpan.from_dict({"span_type": "image", "rel_path": "/img/icon.png"})
+        assert span.rel_path == "/img/icon.png"
+        assert span.alt_text == ""
+
+
 class TestParagraphNode:
     def test_to_dict(self):
         node = ParagraphNode(spans=[InlineSpan(text="Hello world")])
@@ -48,6 +61,19 @@ class TestParagraphNode:
         node = ParagraphNode.from_dict({"spans": [{"text": "Hello", "bold": True}]})
         assert len(node.spans) == 1
         assert node.spans[0].bold is True
+
+    def test_round_trip_with_inline_image_span(self):
+        node = ParagraphNode(
+            spans=[
+                InlineSpan(text="Select the "),
+                ImageSpan(rel_path="/img/icon.png"),
+                InlineSpan(text="binocular icon"),
+            ]
+        )
+        restored = ParagraphNode.from_dict(node.to_dict())
+        assert [type(s) for s in restored.spans] == [InlineSpan, ImageSpan, InlineSpan]
+        assert restored.spans[1].rel_path == "/img/icon.png"
+        assert restored.spans[2].text == "binocular icon"
 
 
 class TestListNode:

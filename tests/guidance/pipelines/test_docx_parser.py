@@ -154,6 +154,50 @@ class TestParserImages:
         assert len(images[0].data) > 0
         assert images[0].ext == ".png"
 
+    def test_inline_image_preserved_in_list_item(self, tmp_path):
+        """An icon embedded mid-sentence stays inline; its bullet and text survive.
+
+        Mirrors the "Select the <icon> binocular icon" bullet in the SITI Tenure
+        guidance: one bullet whose runs are text -> inline picture -> text. The
+        image must not swallow the paragraph — the bullet stays a list item, and
+        the words remain real text spans rather than being lost into an image's
+        alt text.
+        """
+        png_path = tmp_path / "icon.png"
+        png_path.write_bytes(_make_png())
+
+        doc = Document()
+        doc.add_heading("Steps", level=1)
+        bullet = doc.add_paragraph(style="List Bullet")
+        bullet.add_run("Select the ")
+        bullet.add_run().add_picture(str(png_path), width=Inches(0.2))
+        bullet.add_run("binocular icon")
+
+        tree = service.parse_doc(doc, title="InlineIcon")
+        section = tree.children[0]
+
+        # The bullet is a list item, not a block image promoted out of the list.
+        lists = [n for n in section.content if isinstance(n, models.ListNode)]
+        assert len(lists) == 1
+        assert len(lists[0].items) == 1
+        item = lists[0].items[0]
+
+        # Spans are text -> inline image -> text, in document order.
+        assert len(item.spans) == 3
+        assert isinstance(item.spans[0], models.InlineSpan)
+        assert isinstance(item.spans[1], models.ImageSpan)
+        assert isinstance(item.spans[2], models.InlineSpan)
+        assert item.spans[0].text == "Select the "
+        assert item.spans[2].text == "binocular icon"
+        assert len(item.spans[1].data) > 0
+
+        # No block image was emitted for this bullet.
+        assert not [n for n in section.content if isinstance(n, models.ImageNode)]
+
+        # The words survive intact as text — not doubled, not lost to alt text.
+        text = "".join(s.text for s in item.spans if isinstance(s, models.InlineSpan))
+        assert text == "Select the binocular icon"
+
 
 class TestParserLists:
     def test_bullet_list_extraction(self):

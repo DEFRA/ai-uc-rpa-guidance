@@ -31,23 +31,47 @@ def _ext_to_content_type(ext: str) -> str:
     return _CONTENT_TYPES.get(ext.lower(), "application/octet-stream")
 
 
+_ImageLike = pipeline_models.ImageNode | pipeline_models.ImageSpan
+
+
+def _node_spans(node: pipeline_models.ContentNode) -> list[pipeline_models.Span]:
+    """Return the inline spans a content node holds, or [] if it holds none."""
+    if isinstance(node, pipeline_models.ParagraphNode):
+        return node.spans
+    if isinstance(node, pipeline_models.ListNode):
+        return [span for item in node.items for span in item.spans]
+    return []
+
+
+def _section_images(
+    section: pipeline_models.SectionNode,
+) -> list[_ImageLike]:
+    """Block ImageNodes plus inline ImageSpans in this section, in document order."""
+    images: list[_ImageLike] = []
+    for node in section.content:
+        if isinstance(node, pipeline_models.ImageNode):
+            images.append(node)
+        images.extend(
+            span
+            for span in _node_spans(node)
+            if isinstance(span, pipeline_models.ImageSpan)
+        )
+    return images
+
+
 def _collect_images(
     tree: pipeline_models.DocumentTree,
-) -> list[tuple[str, pipeline_models.ImageNode]]:
-    """Return (section_number, ImageNode) pairs from the tree in document order."""
-    images: list[tuple[str, pipeline_models.ImageNode]] = []
+) -> list[tuple[str, _ImageLike]]:
+    """Return (section_number, image) pairs from the tree in document order.
 
-    def _walk(section: pipeline_models.SectionNode) -> None:
-        for node in section.content:
-            if isinstance(node, pipeline_models.ImageNode):
-                images.append((section.number, node))
-        for child in section.children:
-            _walk(child)
-
-    for section in tree.children:
-        _walk(section)
-
-    return images
+    Covers both block ImageNodes and inline ImageSpans (icons embedded mid-sentence
+    in paragraphs and list items); both carry the same data/ext/rel_path shape.
+    """
+    return [
+        (section.number, image)
+        for section in tree.sections
+        for image in _section_images(section)
+    ]
 
 
 logger = logging.getLogger(__name__)
