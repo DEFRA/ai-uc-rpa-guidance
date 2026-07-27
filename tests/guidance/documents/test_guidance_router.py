@@ -1,14 +1,18 @@
 """Tests for the guidance API endpoints."""
 
+import io
+import uuid
 from unittest.mock import AsyncMock
 
 import botocore.exceptions
+import docx
 import fastapi.testclient
 import pytest
 
 import app.entrypoints.fastapi
-from app.guidance.documents import api_schemas, s3_repository
+from app.guidance.documents import api_schemas, parser, s3_repository
 from app.guidance.documents import dependencies as guidance_dependencies
+from app.guidance.documents import models as guidance_models
 
 
 def _no_such_key_error() -> botocore.exceptions.ClientError:
@@ -362,6 +366,95 @@ class TestContentEndpoint:
         response = client_with_s3.get("/guidance/documents/not-a-uuid/content")
 
         assert response.status_code == 422
+
+
+class TestContentEndpointServesParsedTitle:
+    """The /content Markdown must be headed by the title as it appears on the page.
+
+    Drives a real .docx through the parse pipeline and serves what the pipeline
+    stored, so the endpoint is asserted against genuinely parsed output rather
+    than a hand-written fixture.
+    """
+
+    _DOCUMENT_ID = "12345678-1234-5678-1234-567812345678"
+
+    _SCHEME_LINE = "Sustainable Farming Incentive 2023 (SFI23)"
+    _SUBJECT_LINES = (
+        "Parcel ID not linked to Single Business Identifier SBI)",
+        "In",
+        "SITI Tenure Guidance",
+    )
+    _EXPECTED_TITLE = (
+        "Sustainable Farming Incentive 2023 (SFI23) — "
+        "Parcel ID not linked to Single Business Identifier SBI) "
+        "In SITI Tenure Guidance"
+    )
+
+    @staticmethod
+    def _cover_page_docx() -> bytes:
+        """A .docx shaped like the RPA guidance template: Title block, then body.
+
+        The scheme name, a blank line, then the subject hand-wrapped over three
+        Title paragraphs — the layout of the real guidance documents.
+        """
+        doc = docx.Document()
+        doc.core_properties.title = "Design Team Guidance Template"
+        cls = TestContentEndpointServesParsedTitle
+        doc.add_paragraph(cls._SCHEME_LINE).style = doc.styles["Title"]
+        doc.add_paragraph("")
+        for line in cls._SUBJECT_LINES:
+            doc.add_paragraph(line).style = doc.styles["Title"]
+        doc.add_heading("Introduction", level=1)
+        doc.add_paragraph("This guide explains the process.")
+        buf = io.BytesIO()
+        doc.save(buf)
+        return buf.getvalue()
+
+    async def _parsed_content(self) -> str:
+        """Run the pipeline over the .docx and return the Markdown it stored."""
+        s3_repo = AsyncMock(spec=s3_repository.AbstractGuidanceStorageRepository)
+        s3_repo.download_docx.return_value = self._cover_page_docx()
+
+        document = guidance_models.GuidanceDocument(
+            id=uuid.UUID(self._DOCUMENT_ID),
+            title=None,
+            status=guidance_models.ExtractionStatus.PROCESSING,
+            path="s3://source-bucket/doc-id/file-id",
+        )
+        result = await parser.PipelineDocumentParser(s3_repo).parse(document)
+
+        assert result.status == guidance_models.ExtractionStatus.COMPLETE
+        return str(s3_repo.upload_content.await_args.args[1])
+
+    async def test_content_is_headed_by_the_full_cover_title(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+    ) -> None:
+        mock_s3_repo.download_content.return_value = await self._parsed_content()
+
+        response = client_with_s3.get(
+            f"/guidance/documents/{self._DOCUMENT_ID}/content"
+        )
+
+        assert response.status_code == 200
+        assert response.text.splitlines()[0] == f"# {self._EXPECTED_TITLE}"
+
+    async def test_content_title_is_not_truncated_to_its_first_line(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+    ) -> None:
+        """Guards the specific regression: only the first Title paragraph served."""
+        mock_s3_repo.download_content.return_value = await self._parsed_content()
+
+        response = client_with_s3.get(
+            f"/guidance/documents/{self._DOCUMENT_ID}/content"
+        )
+
+        heading = response.text.splitlines()[0]
+        assert heading != "# Sustainable Farming Incentive 2023 (SFI23)"
+        assert "SITI Tenure Guidance" in heading
 
 
 class TestSectionEndpoint:

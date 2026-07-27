@@ -356,6 +356,24 @@ class TestParserInlineFormatting:
         assert not any("not bold" in s.text for s in bold_spans)
 
 
+def _add_styled(doc: Document, text: str, style_name: str) -> Paragraph:
+    """Add a paragraph carrying a style Word defines but python-docx does not.
+
+    The RPA guidance template names its contents list "Contents RPA" and its
+    entries "toc 1"; neither exists in python-docx's default template, so the
+    style has to be created before it can be applied.
+    """
+    from docx.enum.style import WD_STYLE_TYPE
+
+    try:
+        style = doc.styles[style_name]
+    except KeyError:
+        style = doc.styles.add_style(style_name, WD_STYLE_TYPE.PARAGRAPH)
+    para = doc.add_paragraph(text)
+    para.style = style
+    return para
+
+
 class TestTitleInference:
     def test_explicit_title_wins(self):
         doc = Document()
@@ -384,6 +402,7 @@ class TestTitleInference:
         doc = Document()
         doc.core_properties.title = ""
         doc.add_paragraph("Plain Title Text")
+        doc.add_paragraph("")
         doc.add_paragraph("Plain Subtitle Text")
         tree = service.parse_doc(doc)
         assert tree.title == "Plain Title Text — Plain Subtitle Text"
@@ -392,6 +411,7 @@ class TestTitleInference:
         doc = Document()
         doc.core_properties.title = ""
         doc.add_heading("Main Title", level=1)
+        doc.add_paragraph("")
         doc.add_paragraph("Plain subtitle")
         tree = service.parse_doc(doc)
         assert tree.title == "Main Title — Plain subtitle"
@@ -440,6 +460,112 @@ class TestTitleInference:
         doc.add_heading("Heading One", level=1)
         tree = service.parse_doc(doc)
         assert tree.title == "Style Title"
+
+    def test_title_style_run_spans_every_line_of_the_cover(self):
+        """A cover title split over several Title paragraphs is kept whole.
+
+        Mirrors the real RPA cover: the scheme name, a blank line, then the
+        document's subject hand-wrapped over three more Title paragraphs.
+        Lines the author ran together are one phrase, so they rejoin with a
+        space; the blank line is the only real break in the title.
+        """
+        doc = Document()
+        doc.core_properties.title = "Design Team Guidance Template"
+        doc.add_paragraph(
+            "Sustainable Farming Incentive 2023 (SFI23)"
+        ).style = doc.styles["Title"]
+        doc.add_paragraph("")
+        for line in (
+            "Parcel ID not linked to Single Business Identifier SBI)",
+            "In",
+            "SITI Tenure Guidance",
+        ):
+            doc.add_paragraph(line).style = doc.styles["Title"]
+        doc.add_paragraph("Contents").style = doc.styles["Heading 1"]
+
+        tree = service.parse_doc(doc)
+
+        assert tree.title == (
+            "Sustainable Farming Incentive 2023 (SFI23) — "
+            "Parcel ID not linked to Single Business Identifier SBI) "
+            "In SITI Tenure Guidance"
+        )
+
+    def test_hand_wrapped_lines_rejoin_with_a_space(self):
+        """Consecutive cover lines are one wrapped phrase, not separate items."""
+        doc = Document()
+        doc.core_properties.title = ""
+        doc.add_paragraph("A title too long to fit on")
+        doc.add_paragraph("a single line")
+
+        tree = service.parse_doc(doc)
+
+        assert tree.title == "A title too long to fit on a single line"
+
+    def test_blank_line_separates_title_parts(self):
+        """A blank line is the author marking a real break between title parts."""
+        doc = Document()
+        doc.core_properties.title = ""
+        doc.add_paragraph("Scheme Name")
+        doc.add_paragraph("")
+        doc.add_paragraph("Document Subject")
+
+        tree = service.parse_doc(doc)
+
+        assert tree.title == "Scheme Name — Document Subject"
+
+    def test_repeated_blank_lines_separate_parts_only_once(self):
+        """Leading and repeated blank lines are spacing, not empty title parts."""
+        doc = Document()
+        doc.core_properties.title = ""
+        for _ in range(4):
+            doc.add_paragraph("")
+        doc.add_paragraph("Scheme Name")
+        doc.add_paragraph("")
+        doc.add_paragraph("")
+        doc.add_paragraph("Document Subject")
+
+        tree = service.parse_doc(doc)
+
+        assert tree.title == "Scheme Name — Document Subject"
+
+    def test_title_defects_are_preserved_verbatim(self):
+        """The extracted title is not tidied: its defects are what the QA checks find."""
+        doc = Document()
+        doc.core_properties.title = "Design Team Guidance Template"
+        doc.add_paragraph("Identifier SBI)").style = doc.styles["Title"]
+
+        tree = service.parse_doc(doc)
+
+        assert tree.title == "Identifier SBI)"
+
+    def test_cover_block_ends_at_table_of_contents(self):
+        """Without a page break, the contents list still bounds the cover block."""
+        doc = Document()
+        doc.core_properties.title = "Design Team Guidance Template"
+        doc.add_paragraph("CS Application processing guidance for PA4")
+        _add_styled(doc, "Contents", "Contents RPA")
+        _add_styled(doc, "1\tIntroduction\t5", "toc 1")
+        doc.add_heading("Introduction", level=1)
+
+        tree = service.parse_doc(doc)
+
+        assert tree.title == "CS Application processing guidance for PA4"
+
+    def test_unstyled_cover_line_used_when_no_title_style(self):
+        """Some guidance documents style the cover line Normal, not Title."""
+        doc = Document()
+        doc.core_properties.title = "Design Team Guidance Template"
+        doc.add_paragraph(
+            "CS Application processing guidance for PA4 Agroforestry Plan"
+        )
+        _add_styled(doc, "Contents", "Contents RPA")
+
+        tree = service.parse_doc(doc)
+
+        assert tree.title == (
+            "CS Application processing guidance for PA4 Agroforestry Plan"
+        )
 
 
 def _add_bookmark(paragraph, name: str, bookmark_id: int = 0) -> None:
