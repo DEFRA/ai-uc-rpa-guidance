@@ -16,6 +16,8 @@ from app.guidance.documents import (
     service,
 )
 
+_MARKDOWN_MEDIA_TYPE = "text/markdown; charset=utf-8"
+
 _IMAGE_CONTENT_TYPES: dict[str, str] = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -229,9 +231,7 @@ async def get_document_content(
     """
     try:
         content = await s3_repo.download_content(document_id)
-        return fastapi.Response(
-            content=content, media_type="text/markdown; charset=utf-8"
-        )
+        return fastapi.Response(content=content, media_type=_MARKDOWN_MEDIA_TYPE)
     except botocore.exceptions.ClientError as exc:
         if exc.response["Error"]["Code"] == "NoSuchKey":
             raise fastapi.HTTPException(
@@ -299,9 +299,7 @@ async def get_document_section(
     try:
         if not children:
             content = await s3_repo.download_section(document_id, section_number)
-            return fastapi.Response(
-                content=content, media_type="text/markdown; charset=utf-8"
-            )
+            return fastapi.Response(content=content, media_type=_MARKDOWN_MEDIA_TYPE)
 
         raw_manifest = await s3_repo.download_manifest(document_id)
         manifest = api_schemas.DocumentManifestResponse.model_validate_json(
@@ -314,9 +312,7 @@ async def get_document_section(
             s3_repo, document_id, section_numbers
         )
 
-        return fastapi.Response(
-            content=content, media_type="text/markdown; charset=utf-8"
-        )
+        return fastapi.Response(content=content, media_type=_MARKDOWN_MEDIA_TYPE)
     except botocore.exceptions.ClientError as exc:
         if exc.response["Error"]["Code"] == "NoSuchKey":
             raise fastapi.HTTPException(
