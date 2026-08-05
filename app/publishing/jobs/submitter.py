@@ -49,7 +49,9 @@ class AnalysisExecutor:
         await self._job_repo.update_status(job.job_id, models.JobStatus.RUNNING)
 
         try:
-            response = await publishing_service.analyse_document(job.document_text)
+            response = await publishing_service.analyse_document(
+                job.document_title, job.sections
+            )
             await self._job_repo.store_result(job.job_id, response.model_dump())
             logger.info("Publishing job %s completed", job.job_id)
         except Exception as exc:

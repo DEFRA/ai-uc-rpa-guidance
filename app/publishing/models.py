@@ -119,13 +119,6 @@ class AnalysisOutput(pydantic.BaseModel):
     findings it must be consistent with.
     """
 
-    document_title: str = pydantic.Field(
-        ...,
-        description=(
-            "Exact title of the document under review; if no explicit title is "
-            "visible, the first heading in the supplied content"
-        ),
-    )
     findings: list[AnalysisFinding] = pydantic.Field(
         default_factory=list, description="List of quality issues found"
     )
@@ -145,13 +138,57 @@ class AnalysisOutput(pydantic.BaseModel):
     )
 
 
+def _default_prompt_repository() -> prompt_repo.AbstractPromptRepository:
+    return prompt_repo.FileSystemPromptRepository(
+        prompt_directory=os.path.join(os.path.dirname(__file__), "prompts")
+    )
+
+
 @dataclass
 class AgentDependencies:
     """Dependencies provided to the publishing agent."""
 
     document_text: str
     prompt_repository: prompt_repo.AbstractPromptRepository = field(
-        default_factory=lambda: prompt_repo.FileSystemPromptRepository(
-            prompt_directory=os.path.join(os.path.dirname(__file__), "prompts")
-        )
+        default_factory=_default_prompt_repository
+    )
+
+
+@dataclass
+class DocumentSection:
+    """A top-level section's full subtree Markdown, the unit of analysis."""
+
+    number: str
+    text: str
+
+
+@dataclass
+class SectionSummary:
+    """One section's summary and verdict, input to the aggregator agent."""
+
+    section_number: str
+    summary: str
+    verdict: ReadinessVerdict
+
+
+@dataclass
+class AggregatorDependencies:
+    """Dependencies provided to the summary aggregator agent."""
+
+    section_summaries: list[SectionSummary]
+    overall_verdict: ReadinessVerdict
+    prompt_repository: prompt_repo.AbstractPromptRepository = field(
+        default_factory=_default_prompt_repository
+    )
+
+
+class AggregatedSummary(pydantic.BaseModel):
+    """Structured output from the aggregator agent."""
+
+    summary: str = pydantic.Field(
+        ...,
+        description=(
+            "Single document-level summary synthesized from the per-section "
+            "summaries, consistent with the overall verdict"
+        ),
     )

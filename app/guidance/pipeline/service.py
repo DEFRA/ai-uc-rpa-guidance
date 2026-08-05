@@ -378,27 +378,64 @@ class DocxParser:
     # Core-properties titles that indicate an unfilled template rather than a real document title.
     _TEMPLATE_TITLES: frozenset[str] = frozenset({"Design Team Guidance Template"})
 
-    @staticmethod
-    def _first_page_lines(doc: docx.document.Document) -> list[str]:
-        """Return text of all non-empty paragraphs before the first explicit page break.
+    # Styles that open the document's navigation, so the cover page has ended.
+    _CONTENTS_STYLE_PREFIXES: tuple[str, ...] = ("toc", "contents", "table of contents")
 
-        Headers and footers are in a separate XML part and do not appear in
-        doc.paragraphs, so they are excluded automatically.
+    # Between the author's distinct title parts, and within one hand-wrapped part.
+    _TITLE_SEPARATOR = " — "
+    _WRAPPED_LINE_SEPARATOR = " "
+
+    @staticmethod
+    def _opens_contents(para: Paragraph) -> bool:
+        """Whether this paragraph begins a table of contents."""
+        name = para.style.name if para.style and para.style.name else ""
+        return name.lower().startswith(DocxParser._CONTENTS_STYLE_PREFIXES)
+
+    @staticmethod
+    def _breaks_page(para: Paragraph) -> bool:
+        """Whether this paragraph carries an explicit page break."""
+        return any(
+            br.get(qn("w:type")) == "page"
+            for run in para.runs
+            for br in run._r.findall(qn("w:br"))
+        )
+
+    @staticmethod
+    def _cover_groups(doc: docx.document.Document) -> list[list[Paragraph]]:
+        """Return the cover page's paragraphs, grouped as the author laid them out.
+
+        The cover ends at the first page break or table of contents, whichever
+        comes first. Within it a blank paragraph separates one part of the title
+        from the next; consecutive paragraphs are one part that the author wrapped
+        by hand because it was too long for the line. Runs of blanks — including
+        the ones padding the top of the page — separate but never form a part of
+        their own. Headers and footers are in a separate XML part and do not
+        appear in doc.paragraphs, so they are excluded automatically.
         """
-        lines: list[str] = []
+        groups: list[list[Paragraph]] = []
+        part: list[Paragraph] = []
         for para in doc.paragraphs:
-            if any(
-                br.get(qn("w:type")) == "page"
-                for run in para.runs
-                for br in run._r.findall(qn("w:br"))
-            ):
+            if DocxParser._opens_contents(para) or DocxParser._breaks_page(para):
                 break
             if para.text.strip():
-                lines.append(para.text.strip())
-        return lines
+                part.append(para)
+            elif part:
+                groups.append(part)
+                part = []
+        if part:
+            groups.append(part)
+        return groups
 
     @staticmethod
     def _extract_title(doc: docx.document.Document) -> str:
+        """Return the document's title, preferring the one printed on the page.
+
+        Where the cover marks its title with the Title style, only those
+        paragraphs are taken; otherwise the whole cover is. Each part is put back
+        together as the author wrapped it, and the parts joined with a dash. The
+        text is joined but not otherwise tidied — defects in a title are findings
+        for the QA checks to report, not noise to normalise away.
+        """
         title = doc.core_properties.title
         if (
             title
@@ -408,15 +445,18 @@ class DocxParser:
         ):
             return title.strip()
 
-        for para in doc.paragraphs:
-            if para.style and para.style.name == "Title" and para.text.strip():
-                return para.text.strip()
+        groups = DocxParser._cover_groups(doc)
+        marked = [
+            [p for p in group if p.style and p.style.name == "Title"]
+            for group in groups
+        ]
+        if any(marked):
+            groups = [group for group in marked if group]
 
-        lines = DocxParser._first_page_lines(doc)
-        if lines:
-            return " — ".join(lines)
-
-        return ""
+        return DocxParser._TITLE_SEPARATOR.join(
+            DocxParser._WRAPPED_LINE_SEPARATOR.join(para.text.strip() for para in group)
+            for group in groups
+        )
 
     @staticmethod
     def _assign_numbers(sections: list[models.SectionNode], prefix: str = "") -> None:

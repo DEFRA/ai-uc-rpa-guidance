@@ -8,7 +8,15 @@ from typing import Annotated
 import botocore.exceptions
 import fastapi
 
-from app.guidance.documents import api_schemas, dependencies, s3_repository, service
+from app.guidance.documents import (
+    api_schemas,
+    dependencies,
+    s3_repository,
+    sectioning,
+    service,
+)
+
+_MARKDOWN_MEDIA_TYPE = "text/markdown; charset=utf-8"
 
 _IMAGE_CONTENT_TYPES: dict[str, str] = {
     ".png": "image/png",
@@ -190,11 +198,55 @@ async def get_document_manifest(
 
 
 @router.get(
+    "/{document_id}/content",
+    status_code=fastapi.status.HTTP_200_OK,
+    responses={
+        fastapi.status.HTTP_200_OK: {
+            "description": "Full document Markdown content",
+            "content": {"text/markdown": {}},
+        },
+        fastapi.status.HTTP_404_NOT_FOUND: {
+            "description": "Content not found — document may not have completed processing",
+        },
+    },
+)
+async def get_document_content(
+    document_id: uuid.UUID,
+    s3_repo: Annotated[
+        s3_repository.AbstractGuidanceStorageRepository,
+        fastapi.Depends(dependencies.get_s3_repository),
+    ],
+) -> fastapi.Response:
+    """Return the full rendered Markdown for a parsed guidance document.
+
+    Args:
+        document_id: The guidance document UUID.
+        s3_repo: The S3 repository, injected via FastAPI DI.
+
+    Returns:
+        Markdown response with media type text/markdown.
+
+    Raises:
+        HTTPException: 404 if the document content has not been produced yet.
+    """
+    try:
+        content = await s3_repo.download_content(document_id)
+        return fastapi.Response(content=content, media_type=_MARKDOWN_MEDIA_TYPE)
+    except botocore.exceptions.ClientError as exc:
+        if exc.response["Error"]["Code"] == "NoSuchKey":
+            raise fastapi.HTTPException(
+                status_code=fastapi.status.HTTP_404_NOT_FOUND,
+                detail="Content not found",
+            ) from exc
+        raise
+
+
+@router.get(
     "/{document_id}/sections/{section_number}",
     status_code=fastapi.status.HTTP_200_OK,
     responses={
         fastapi.status.HTTP_200_OK: {
-            "description": "Section Markdown content (direct content only, no children)",
+            "description": "Section Markdown content",
             "content": {"text/markdown": {}},
         },
         fastapi.status.HTTP_404_NOT_FOUND: {
@@ -215,17 +267,27 @@ async def get_document_section(
         s3_repository.AbstractGuidanceStorageRepository,
         fastapi.Depends(dependencies.get_s3_repository),
     ],
+    children: Annotated[
+        bool,
+        fastapi.Query(
+            description="Include the content of all descendant sections, "
+            "equivalent to slicing this section out of the full document"
+        ),
+    ] = False,
 ) -> fastapi.Response:
-    """Return the Markdown content for a single document section.
+    """Return the Markdown content for a document section.
 
-    Returns only the direct content of the section (heading + immediate paragraphs,
-    lists, and tables). Children are not included; fetch them separately via their
-    own section numbers.
+    By default returns only the direct content of the section (heading +
+    immediate paragraphs, lists, and tables), with children fetched separately
+    via their own section numbers. With children=true, descendant sections'
+    content is appended, matching what slicing this section (and its children)
+    out of the full /content document would produce.
 
     Args:
         document_id: The guidance document UUID.
         section_number: The hierarchical section number (e.g. "1", "1.2", "1.2.3").
         s3_repo: The S3 repository, injected via FastAPI DI.
+        children: Whether to include descendant sections' content.
 
     Returns:
         Markdown response with media type text/markdown.
@@ -235,10 +297,22 @@ async def get_document_section(
         HTTPException: 404 if the section does not exist.
     """
     try:
-        content = await s3_repo.download_section(document_id, section_number)
-        return fastapi.Response(
-            content=content, media_type="text/markdown; charset=utf-8"
+        if not children:
+            content = await s3_repo.download_section(document_id, section_number)
+            return fastapi.Response(content=content, media_type=_MARKDOWN_MEDIA_TYPE)
+
+        raw_manifest = await s3_repo.download_manifest(document_id)
+        manifest = api_schemas.DocumentManifestResponse.model_validate_json(
+            raw_manifest
         )
+        section_numbers = sectioning.section_and_descendant_numbers(
+            manifest, section_number
+        )
+        content = await sectioning.fetch_joined_sections(
+            s3_repo, document_id, section_numbers
+        )
+
+        return fastapi.Response(content=content, media_type=_MARKDOWN_MEDIA_TYPE)
     except botocore.exceptions.ClientError as exc:
         if exc.response["Error"]["Code"] == "NoSuchKey":
             raise fastapi.HTTPException(

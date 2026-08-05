@@ -5,14 +5,20 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.publishing import models as publishing_models
 from app.publishing.jobs import documents, models, service
+
+_SECTIONS = [
+    publishing_models.DocumentSection(number="1", text="## 1 One\n\nSome content.\n"),
+    publishing_models.DocumentSection(number="2", text="## 2 Two\n\nMore content.\n"),
+]
 
 
 def _make_ready_content(doc_id: uuid.UUID | None = None) -> documents.DocumentContent:
     return documents.DocumentContent(
         document_id=doc_id or uuid.uuid4(),
         title="Test Guidance",
-        content="# Test Guidance\n\nSome content.",
+        sections=_SECTIONS,
         ready=True,
     )
 
@@ -23,7 +29,7 @@ def _make_not_ready_content(
     return documents.DocumentContent(
         document_id=doc_id or uuid.uuid4(),
         title="Test Guidance",
-        content="",
+        sections=[],
         ready=False,
     )
 
@@ -83,7 +89,7 @@ class TestStartAnalysis:
 
         assert job.document_id == doc_id
 
-    async def test_submits_job_with_document_text(self) -> None:
+    async def test_submits_job_with_title_and_sections(self) -> None:
         doc_id = uuid.uuid4()
         submitted: list[models.AnalysisJob] = []
         svc = _make_service(
@@ -95,7 +101,19 @@ class TestStartAnalysis:
         assert len(submitted) == 1
         assert submitted[0].job_id == job.id
         assert submitted[0].document_id == doc_id
-        assert submitted[0].document_text == "# Test Guidance\n\nSome content."
+        assert submitted[0].document_title == "Test Guidance"
+        assert submitted[0].sections == _SECTIONS
+
+    async def test_falls_back_to_placeholder_title_when_missing(self) -> None:
+        doc_id = uuid.uuid4()
+        submitted: list[models.AnalysisJob] = []
+        content = _make_ready_content(doc_id)
+        content.title = None
+        svc = _make_service(content=content, submitted_jobs=submitted)
+
+        await svc.start_analysis(doc_id)
+
+        assert submitted[0].document_title == "Untitled document"
 
 
 class TestGetJob:

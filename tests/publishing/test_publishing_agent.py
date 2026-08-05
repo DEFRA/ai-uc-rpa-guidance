@@ -56,7 +56,6 @@ class TestAnalysisOutput:
     def test_valid_output_with_findings(self) -> None:
         """Test creating a valid analysis output with findings."""
         output = models.AnalysisOutput(
-            document_title="Test Guidance",
             findings=[
                 models.AnalysisFinding(
                     category=models.FindingCategory.OVERALL_PUBLISH_READINESS,
@@ -78,7 +77,6 @@ class TestAnalysisOutput:
     def test_output_with_empty_findings(self) -> None:
         """Test creating output with no findings."""
         output = models.AnalysisOutput(
-            document_title="Test Guidance",
             findings=[],
             good_points=[],
             summary="Document is ready",
