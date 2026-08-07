@@ -13,12 +13,15 @@ import asyncio
 import base64
 import hashlib
 import json
+import os
+import tempfile
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import certifi
 import httpx
 
 DOCUMENTS_PATH = "/guidance/documents/"
@@ -29,6 +32,8 @@ DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.docu
 DEFAULT_HOST = "http://localhost:8085"
 DEFAULT_UPLOADER = "http://localhost:7337"
 DEFAULT_CONCURRENCY = 5
+_CERT_BEGIN = "-----BEGIN CERTIFICATE-----"
+_CERT_END = "-----END CERTIFICATE-----"
 REQUEST_TIMEOUT_S = 600.0
 PARSE_TIMEOUT_S = 180.0
 # Publishing analyses one top-level section per LLM call, sequentially, so a
@@ -37,6 +42,43 @@ ANALYSE_TIMEOUT_S = 3600.0
 CRITIQUE_TIMEOUT_S = 1800.0
 POLL_INTERVAL_S = 2.0
 _OUTPUT_DIRNAME = Path("data") / "output"
+
+
+def configure_aws_ca_bundle() -> None:
+    """Point boto3 at CA_BUNDLE_DIR's certificates, if set, before any Bedrock client is built.
+
+    Host-run scripts hit the same TLS-intercepting proxy the Docker image is built
+    to trust, but they never see the image's baked-in bundle -- CA_BUNDLE_DIR (the
+    same directory of proxy CAs used to build that image, see Dockerfile) is the
+    host-side equivalent. The directory's PEMs are combined into a single temporary
+    bundle because AWS_CA_BUNDLE takes one file. Overrides any inherited
+    AWS_CA_BUNDLE (e.g. a shell default pointing at the plain system bundle, which
+    lacks the proxy chain and would still fail). Call this after load_dotenv() and
+    before importing ``app.infra.bedrock.llm``, which builds its client at import.
+    """
+    ca_bundle_dir = os.environ.get("CA_BUNDLE_DIR")
+    if not ca_bundle_dir:
+        return
+    pems = sorted(
+        path
+        for path in Path(ca_bundle_dir).glob("*")
+        if path.suffix in {".crt", ".pem"} and path.is_file()
+    )
+    if not pems:
+        return
+    # certifi first so public roots keep verifying: AWS_CA_BUNDLE replaces, not extends.
+    blocks: list[str] = []
+    for path in (Path(certifi.where()), *pems):
+        for chunk in path.read_text().split(_CERT_END):
+            if _CERT_BEGIN in chunk:
+                block = chunk[chunk.index(_CERT_BEGIN) :] + _CERT_END
+                if block not in blocks:
+                    blocks.append(block)
+    with tempfile.NamedTemporaryFile(
+        mode="w", delete=False, prefix="ca-bundle", suffix=".pem"
+    ) as bundle:
+        bundle.write("\n".join(blocks))
+    os.environ["AWS_CA_BUNDLE"] = bundle.name
 
 
 def default_output_dir() -> Path:
