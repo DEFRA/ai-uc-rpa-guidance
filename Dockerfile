@@ -3,15 +3,20 @@ ARG PARENT_VERSION=2.2.1-python3.14.3
 ARG PORT=8085
 ARG PORT_DEBUG=8086
 
+# Overrideable scratch context to allow the inclusion of any custom root CAs we
+# need to trust, left empty here by default.
+FROM scratch AS ca-bundle
+
 FROM defradigital/python-development:${PARENT_VERSION} AS development
 
 USER root
 
-# Optionally trust a corporate/TLS-inspecting proxy CA. `ca-bundle` is a named
-# build context that defaults to an empty directory, so this is a no-op unless
-# CA_BUNDLE_DIR points at a directory of PEM certificates. A build context is
-# used rather than a build secret because BuildKit hashes context contents:
-# the layer rebuilds when — and only when — the certificates change.
+# Optionally trust a corporate/TLS-inspecting proxy CA. `ca-bundle` is empty
+# unless a build context overrides it with a directory of PEM certificates (the
+# orchestrator's compose files pass CA_BUNDLE_DIR), so this is a no-op by
+# default. A build context is used rather than a build secret because BuildKit
+# hashes context contents: the layer rebuilds when — and only when — the
+# certificates change.
 COPY --from=ca-bundle . /tmp/ca-bundle/
 RUN find /tmp/ca-bundle -type f \( -name '*.crt' -o -name '*.pem' \) -exec cat {} + \
       | awk '/BEGIN CERTIFICATE/{b=""} {b=b $0 ORS} /END CERTIFICATE/{if (!seen[b]++) printf "%s", b}' \
