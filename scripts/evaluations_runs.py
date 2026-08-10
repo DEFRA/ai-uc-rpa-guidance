@@ -59,11 +59,8 @@ def configure_aws_ca_bundle() -> None:
     ca_bundle_dir = os.environ.get("CA_BUNDLE_DIR")
     if not ca_bundle_dir:
         return
-    pems = sorted(
-        path
-        for path in Path(ca_bundle_dir).glob("*")
-        if path.suffix in {".crt", ".pem"} and path.is_file()
-    )
+    # *.crt only, matching the Dockerfiles' filter, so host and container trust agree.
+    pems = sorted(path for path in Path(ca_bundle_dir).glob("*.crt") if path.is_file())
     if not pems:
         return
     # certifi first so public roots keep verifying: AWS_CA_BUNDLE replaces, not extends.
