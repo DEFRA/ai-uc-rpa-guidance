@@ -12,6 +12,7 @@ from app.guidance.documents import (
     api_schemas,
     dependencies,
     s3_repository,
+    section_writer,
     sectioning,
     service,
 )
@@ -320,6 +321,81 @@ async def get_document_section(
                 detail="Section not found",
             ) from exc
         raise
+
+
+@router.put(
+    "/{document_id}/sections/{section_number}",
+    status_code=fastapi.status.HTTP_204_NO_CONTENT,
+    responses={
+        fastapi.status.HTTP_204_NO_CONTENT: {
+            "description": "Section updated",
+        },
+        fastapi.status.HTTP_404_NOT_FOUND: {
+            "description": "Document or section not found",
+        },
+    },
+)
+async def update_document_section(
+    document_id: uuid.UUID,
+    section_number: Annotated[
+        str,
+        fastapi.Path(
+            pattern=r"^\d+(\.\d+)*$",
+            description="Hierarchical section number, e.g. 1.2.3",
+        ),
+    ],
+    request: api_schemas.SectionUpdateRequest,
+    s3_repo: Annotated[
+        s3_repository.AbstractGuidanceStorageRepository,
+        fastapi.Depends(dependencies.get_s3_repository),
+    ],
+) -> fastapi.Response:
+    """Replace a document section's heading text and Markdown body.
+
+    The section number is taken from the path and is not editable: it is a
+    positional identity used as the storage key, the manifest key and the
+    intra-document anchor. The stored heading line is composed server-side from
+    the manifest, so an edit cannot change a section's number or level.
+
+    Writes the section file, the manifest heading and the regenerated content
+    document, keeping the artefacts read by the publishing checker, the
+    frontend's table of contents and the review checker in step.
+
+    Args:
+        document_id: The guidance document UUID.
+        section_number: The hierarchical section number (e.g. "1", "1.2").
+        request: The replacement heading text and Markdown body.
+        s3_repo: The S3 repository, injected via FastAPI DI.
+
+    Returns:
+        An empty 204 response.
+
+    Raises:
+        HTTPException: 422 if the section number or body is invalid.
+        HTTPException: 404 if the document or section does not exist.
+    """
+    try:
+        await section_writer.update_section(
+            s3_repo,
+            document_id,
+            section_number,
+            heading=request.heading,
+            body=request.markdown,
+        )
+    except section_writer.SectionNotFoundError:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_404_NOT_FOUND,
+            detail=f"Section {section_number} not found",
+        ) from None
+    except botocore.exceptions.ClientError as exc:
+        if exc.response["Error"]["Code"] == "NoSuchKey":
+            raise fastapi.HTTPException(
+                status_code=fastapi.status.HTTP_404_NOT_FOUND,
+                detail="Document not found",
+            ) from exc
+        raise
+
+    return fastapi.Response(status_code=fastapi.status.HTTP_204_NO_CONTENT)
 
 
 @router.get(

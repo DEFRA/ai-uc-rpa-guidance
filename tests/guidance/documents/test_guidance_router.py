@@ -1,6 +1,7 @@
 """Tests for the guidance API endpoints."""
 
 import io
+import json
 import uuid
 from unittest.mock import AsyncMock
 
@@ -741,6 +742,198 @@ class TestImageEndpoint:
         client_with_s3: fastapi.testclient.TestClient,
     ) -> None:
         response = client_with_s3.get("/guidance/documents/not-a-uuid/images/img_1.png")
+
+        assert response.status_code == 422
+
+
+class TestUpdateSectionEndpoint:
+    """PUT /guidance/documents/{id}/sections/{number} applies an editor's correction."""
+
+    MANIFEST = {
+        "document_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "title": "SFI Parcel Guidance",
+        "sections": [
+            {
+                "number": "1",
+                "heading": "Overview",
+                "level": 1,
+                "parent": None,
+                "children": [],
+                "links": [],
+            },
+            {
+                "number": "7",
+                "heading": "Email template",
+                "level": 1,
+                "parent": None,
+                "children": [],
+                "links": [],
+            },
+        ],
+    }
+
+    @pytest.fixture
+    def document_id(self) -> str:
+        return self.MANIFEST["document_id"]
+
+    @pytest.fixture(autouse=True)
+    def _prime_storage(self, mock_s3_repo: AsyncMock) -> None:
+        """Prime the manifest and section files a write path reads back."""
+        mock_s3_repo.download_manifest.return_value = json.dumps(self.MANIFEST)
+        stored = {
+            "1": "## 1 Overview\n\nOriginal text.\n",
+            "7": "## 7 Email template\n\nSVBI is wrong.\n",
+        }
+
+        async def download_section(_document_id: uuid.UUID, number: str) -> str:
+            return stored[number]
+
+        async def upload_section(
+            _document_id: uuid.UUID, number: str, markdown: str
+        ) -> None:
+            stored[number] = markdown
+
+        mock_s3_repo.download_section.side_effect = download_section
+        mock_s3_repo.upload_section.side_effect = upload_section
+
+    def test_returns_204_and_writes_the_section(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+        document_id: str,
+    ) -> None:
+        response = client_with_s3.put(
+            f"/guidance/documents/{document_id}/sections/7",
+            json={"heading": "Email template", "markdown": "SBI is correct."},
+        )
+
+        assert response.status_code == 204
+        mock_s3_repo.upload_section.assert_awaited_once_with(
+            uuid.UUID(document_id),
+            "7",
+            "## 7 Email template\n\nSBI is correct.\n",
+        )
+
+    def test_regenerates_content_document(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+        document_id: str,
+    ) -> None:
+        """The review checker reads content.md, so it must not go stale."""
+        client_with_s3.put(
+            f"/guidance/documents/{document_id}/sections/7",
+            json={"heading": "Email template", "markdown": "SBI is correct."},
+        )
+
+        content = str(mock_s3_repo.upload_content.await_args.args[1])
+        assert "SBI is correct." in content
+        assert "SVBI" not in content
+
+    def test_accepts_snake_case_body(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        document_id: str,
+    ) -> None:
+        """Both field names are single words, so there is no camelCase variant."""
+        response = client_with_s3.put(
+            f"/guidance/documents/{document_id}/sections/1",
+            json={"heading": "Overview", "markdown": "Text."},
+        )
+
+        assert response.status_code == 204
+
+    def test_preserves_a_heading_that_begins_with_its_section_number(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+        document_id: str,
+    ) -> None:
+        """ "7 day rule" in section 7 is legitimate and must not be de-duplicated."""
+        client_with_s3.put(
+            f"/guidance/documents/{document_id}/sections/7",
+            json={"heading": "7 day rule", "markdown": "Text."},
+        )
+
+        assert (
+            mock_s3_repo.upload_section.await_args.args[2]
+            == "## 7 7 day rule\n\nText.\n"
+        )
+
+    def test_returns_404_for_unknown_section_number(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+        document_id: str,
+    ) -> None:
+        response = client_with_s3.put(
+            f"/guidance/documents/{document_id}/sections/9",
+            json={"heading": "Nope", "markdown": "Text."},
+        )
+
+        assert response.status_code == 404
+        mock_s3_repo.upload_section.assert_not_awaited()
+
+    def test_returns_404_for_unknown_document(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+        document_id: str,
+    ) -> None:
+        mock_s3_repo.download_manifest.side_effect = _no_such_key_error()
+
+        response = client_with_s3.put(
+            f"/guidance/documents/{document_id}/sections/1",
+            json={"heading": "Overview", "markdown": "Text."},
+        )
+
+        assert response.status_code == 404
+
+    def test_returns_422_for_invalid_section_number(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        document_id: str,
+    ) -> None:
+        response = client_with_s3.put(
+            f"/guidance/documents/{document_id}/sections/not-a-number",
+            json={"heading": "Overview", "markdown": "Text."},
+        )
+
+        assert response.status_code == 422
+
+    def test_returns_422_for_invalid_document_id(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+    ) -> None:
+        response = client_with_s3.put(
+            "/guidance/documents/not-a-uuid/sections/1",
+            json={"heading": "Overview", "markdown": "Text."},
+        )
+
+        assert response.status_code == 422
+
+    def test_returns_422_for_empty_heading(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        document_id: str,
+    ) -> None:
+        response = client_with_s3.put(
+            f"/guidance/documents/{document_id}/sections/1",
+            json={"heading": "", "markdown": "Text."},
+        )
+
+        assert response.status_code == 422
+
+    def test_returns_422_when_markdown_is_missing(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        document_id: str,
+    ) -> None:
+        """A partial update would silently blank the body."""
+        response = client_with_s3.put(
+            f"/guidance/documents/{document_id}/sections/1",
+            json={"heading": "Overview"},
+        )
 
         assert response.status_code == 422
 

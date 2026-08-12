@@ -1,9 +1,13 @@
 """Pydantic request/response schemas for the guidance API."""
 
 from datetime import datetime
+from typing import Annotated
 
 import pydantic
 import pydantic.alias_generators
+
+MAX_HEADING_LENGTH = 500
+MAX_MARKDOWN_LENGTH = 1_000_000
 
 
 class DocumentUploadRequest(pydantic.BaseModel):
@@ -129,3 +133,26 @@ class DocumentManifestResponse(pydantic.BaseModel):
     document_id: str
     title: str
     sections: list[ManifestSectionNodeResponse]
+
+
+class SectionUpdateRequest(pydantic.BaseModel):
+    """Editor-supplied replacement content for a single guidance section.
+
+    The section number is deliberately absent: it is a positional identity
+    taken from the request path and the manifest, so an edit cannot move or
+    renumber a section. The heading is supplied as text only -- the stored
+    heading line, including its number and hash prefix, is composed server-side.
+    """
+
+    heading: Annotated[
+        str,
+        pydantic.StringConstraints(
+            strip_whitespace=True,
+            min_length=1,
+            max_length=MAX_HEADING_LENGTH,
+            # A newline would split the composed heading line in two and so
+            # invent a section that the manifest does not know about.
+            pattern=r"^[^\r\n]*$",
+        ),
+    ]
+    markdown: Annotated[str, pydantic.StringConstraints(max_length=MAX_MARKDOWN_LENGTH)]
