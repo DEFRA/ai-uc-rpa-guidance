@@ -58,6 +58,7 @@ from scripts.evaluations_runs import (
 from scripts.evaluations_runs import (
     DEFAULT_HOST,
     DEFAULT_UPLOADER,
+    configure_aws_ca_bundle,
     default_output_dir,
     generate_runs,
 )
@@ -510,6 +511,7 @@ async def main() -> None:
     # Load the project .env (searching up from the cwd) before importing the model,
     # which reads Bedrock config from env at import time.
     load_dotenv(find_dotenv(usecwd=True))
+    configure_aws_ca_bundle()
     from app.infra.bedrock import llm
 
     judge, judge_usage = make_bedrock_judge(llm.claude_sonnet)

@@ -82,6 +82,7 @@ from scripts.evaluations_runs import (
     REQUEST_TIMEOUT_S,
     analyse_document,
     capture_name,
+    configure_aws_ca_bundle,
     default_output_dir,
     resolve_document_id,
     validate_document,
@@ -473,6 +474,7 @@ async def main() -> None:
     # which reads Bedrock config from env at import time -- so this runs from any cwd
     # without an explicit --env-file.
     load_dotenv(find_dotenv(usecwd=True))
+    configure_aws_ca_bundle()
     from app.infra.bedrock import llm
 
     model = llm.claude_sonnet
