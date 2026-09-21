@@ -55,6 +55,14 @@ def _make_test_docx() -> Document:
     return doc
 
 
+def _texts_of(paragraphs) -> list[str]:
+    return ["".join(span.text for span in p.spans) for p in paragraphs]
+
+
+def _texts(row) -> list[str]:
+    return ["".join(_texts_of(cell.paragraphs)) for cell in row.cells]
+
+
 class TestParserStructure:
     def test_nested_sections(self):
         doc = _make_test_docx()
@@ -101,35 +109,71 @@ class TestParserStructure:
         details = tree.children[0].children[0]  # "Details" subsection
         tables = [n for n in details.content if isinstance(n, models.TableNode)]
         assert len(tables) == 1
-        assert tables[0].headers == ["Name", "Value"]
-        assert tables[0].rows == [["Alpha", "100"], ["Beta", "200"]]
+        assert _texts(tables[0].header) == ["Name", "Value"]
+        assert [_texts(row) for row in tables[0].rows] == [
+            ["Alpha", "100"],
+            ["Beta", "200"],
+        ]
 
-    def test_single_cell_table_parsed_as_header_only(self):
+    def test_cell_keeps_the_formatting_of_its_runs(self):
+        # A cell is a little document, not a string: reading it as text is what
+        # drops the marks, links and colours in it.
+        doc = Document()
+        doc.add_heading("Section", level=1)
+        table = doc.add_table(rows=2, cols=1)
+        table.cell(0, 0).text = "Case"
+        run = table.cell(1, 0).paragraphs[0].add_run("Fill this in")
+        run.bold = True
+
+        tree = service.parse_doc(doc, title="T")
+        table_node = next(
+            n for n in tree.children[0].content if isinstance(n, models.TableNode)
+        )
+        span = table_node.rows[0].cells[0].paragraphs[0].spans[0]
+        assert span.text == "Fill this in"
+        assert span.bold
+
+    def test_single_cell_table_parsed_as_a_callout(self):
         doc = Document()
         doc.add_heading("Section", level=1)
         table = doc.add_table(rows=1, cols=1)
         table.cell(0, 0).text = "Important note."
         tree = service.parse_doc(doc, title="T")
-        tables = [
-            n for n in tree.children[0].content if isinstance(n, models.TableNode)
+        callouts = [
+            n for n in tree.children[0].content if isinstance(n, models.CalloutNode)
         ]
-        assert len(tables) == 1
-        assert tables[0].headers == ["Important note."]
-        assert tables[0].rows == []
+        assert len(callouts) == 1
+        assert _texts_of(callouts[0].paragraphs) == ["Important note."]
 
-    def test_fully_merged_table_parsed_as_header_only(self):
+    def test_fully_merged_table_parsed_as_a_callout(self):
         doc = Document()
         doc.add_heading("Section", level=1)
         table = doc.add_table(rows=2, cols=2)
         table.cell(0, 0).text = "Callout content."
         table.cell(0, 0).merge(table.cell(1, 1))
         tree = service.parse_doc(doc, title="T")
-        tables = [
-            n for n in tree.children[0].content if isinstance(n, models.TableNode)
+        callouts = [
+            n for n in tree.children[0].content if isinstance(n, models.CalloutNode)
         ]
-        assert len(tables) == 1
-        assert tables[0].headers == ["Callout content."]
-        assert tables[0].rows == []
+        assert len(callouts) == 1
+        assert _texts_of(callouts[0].paragraphs) == ["Callout content."]
+
+    def test_callout_keeps_its_paragraphs_apart(self):
+        doc = Document()
+        doc.add_heading("Section", level=1)
+        table = doc.add_table(rows=1, cols=1)
+        cell = table.cell(0, 0)
+        cell.text = "Version of the guide used:"
+        cell.add_paragraph("Name and date")
+
+        tree = service.parse_doc(doc, title="T")
+        callout = next(
+            n for n in tree.children[0].content if isinstance(n, models.CalloutNode)
+        )
+        assert _texts_of(callout.paragraphs) == [
+            "Version of the guide used:",
+            "Name and date",
+        ]
 
 
 class TestParserImages:

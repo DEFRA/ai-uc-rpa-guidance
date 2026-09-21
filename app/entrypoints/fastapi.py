@@ -11,6 +11,7 @@ from app.common import mongo, tracing
 from app.critique import router as critique_router
 from app.feedback import router as feedback_router
 from app.guidance.documents import router as guidance_router
+from app.guidance.summaries import router as summaries_router
 from app.health import router as health_router
 from app.publishing import router as publishing_router
 from app.review import router as review_router
@@ -39,6 +40,7 @@ app.include_router(publishing_router.router)
 app.include_router(critique_router.router)
 app.include_router(review_router.router)
 app.include_router(guidance_router.router)
+app.include_router(summaries_router.router)
 app.include_router(feedback_router.router)
 
 

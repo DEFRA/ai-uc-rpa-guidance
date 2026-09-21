@@ -33,6 +33,10 @@ class AbstractGuidanceStorageRepository(ABC):
         """Download the document manifest JSON from storage."""
 
     @abstractmethod
+    async def upload_summary(self, document_id: uuid.UUID, markdown: str) -> str:
+        """Upload the document's rendered summary Markdown, returning its path."""
+
+    @abstractmethod
     async def upload_section(
         self, document_id: uuid.UUID, section_number: str, markdown: str
     ) -> None:
@@ -170,6 +174,35 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
         logger.debug("Downloaded manifest from s3://%s/%s", self.bucket, key)
 
         return body.decode()
+
+    async def upload_summary(self, document_id: uuid.UUID, markdown: str) -> str:
+        """Upload the summary to parsed_guidance/{document_id}/summary.md.
+
+        The summary is written beside the parse outputs so that anything
+        reading a document's prefix finds it there. Nothing in this service
+        reads it back — the queryable copy lives in Mongo — but the search
+        index this feeds will be built from the document prefix.
+
+        Args:
+            document_id: The guidance document ID.
+            markdown: The rendered summary Markdown.
+
+        Returns:
+            The storage path written, as s3://bucket/key.
+        """
+        key = f"parsed_guidance/{document_id}/summary.md"
+
+        await asyncio.to_thread(
+            self.s3.put_object,
+            Bucket=self.bucket,
+            Key=key,
+            Body=markdown.encode(),
+            ContentType="text/markdown",
+        )
+
+        logger.debug("Uploaded summary to s3://%s/%s", self.bucket, key)
+
+        return f"s3://{self.bucket}/{key}"
 
     async def upload_section(
         self, document_id: uuid.UUID, section_number: str, markdown: str

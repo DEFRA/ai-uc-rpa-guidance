@@ -1,7 +1,16 @@
 import html
 from functools import singledispatch
 
-from app.guidance.pipeline import models
+from app.guidance.pipeline import colours, models
+
+# What a newline becomes inside a cell, a pipe row being one line and unable to hold
+# another.
+_CELL_BREAK = "<br>"
+
+# A pipe ends a cell wherever it appears, so a pipe the document means as text has to
+# say so. This is not the escaping feature: an unescaped pipe adds a column, where an
+# unescaped asterisk only reads oddly.
+_ESCAPED_PIPE = r"\|"
 
 
 def _render_spans(spans: list[models.Span]) -> str:
@@ -11,7 +20,10 @@ def _render_spans(spans: list[models.Span]) -> str:
         if isinstance(span, models.ImageSpan):
             parts.append(f"![{span.alt_text}]({span.rel_path})")
             continue
-        text = html.escape(span.text)
+        # Quotes are left alone: this is text, not an attribute, and escaping an
+        # apostrophe to `&#x27;` puts a numeric entity in front of the reader --
+        # Markdown renderers pass one through, and the editor shows it literally.
+        text = html.escape(span.text, quote=False)
         if span.hyperlink:
             href = html.escape(span.hyperlink, quote=True)
             link_text = text.replace("]", "\\]")
@@ -22,30 +34,64 @@ def _render_spans(spans: list[models.Span]) -> str:
             text = f"<em>{text}</em>"
         if span.bold:
             text = f"<strong>{text}</strong>"
+        # Outermost, so that a coloured run stays one span whatever marks it carries;
+        # the editor re-tokenises what is inside the brackets as Markdown.
+        colour = colours.name_for(span.color)
+        if colour:
+            text = colours.marked_up(text, colour)
         parts.append(text)
     return "".join(parts)
 
 
+def _render_cell(cell: models.CellNode) -> str:
+    """One cell as the single line a pipe row can hold.
+
+    A cell's blocks are joined with `<br>` because the format has nothing else to
+    offer: a row cannot contain a newline. The editor reads that form back as the
+    blocks it stands for, so nothing is lost by writing it.
+    """
+    blocks = [_render_spans(p.spans) for p in cell.paragraphs]
+    return _CELL_BREAK.join(blocks).replace("|", _ESCAPED_PIPE)
+
+
+def _render_quote(paragraphs: list[models.ParagraphNode]) -> list[str]:
+    """Blocks as one blockquote, every line of them marked.
+
+    Marking only the first line is what breaks a box: Markdown reads the lines that
+    follow as a lazy continuation of the same paragraph, so a callout saying three
+    things arrives as one run-on sentence, and anything after a blank line falls out
+    of the quote altogether.
+    """
+    lines: list[str] = []
+    for paragraph in paragraphs:
+        if lines:
+            lines.append(">")
+        lines.extend(f"> {line}" for line in _render_spans(paragraph.spans).split("\n"))
+
+    return lines
+
+
 def _render_table(table: models.TableNode) -> list[str]:
-    if not table.headers:
+    if table.header is None or not table.header.cells:
         return []
 
-    # 1×1 tables are used in Word as callout boxes — render as a blockquote
-    if len(table.headers) == 1 and not table.rows:
-        return [f"> {table.headers[0]}", ""]
-
-    lines: list[str] = []
-    header_line = "| " + " | ".join(table.headers) + " |"
-    separator = "| " + " | ".join("---" for _ in table.headers) + " |"
-    lines.append(header_line)
-    lines.append(separator)
+    columns = len(table.header.cells)
+    lines = [
+        _render_row([_render_cell(cell) for cell in table.header.cells]),
+        "| " + " | ".join("---" for _ in range(columns)) + " |",
+    ]
 
     for row in table.rows:
-        padded = row + [""] * (len(table.headers) - len(row))
-        lines.append("| " + " | ".join(padded[: len(table.headers)]) + " |")
+        cells = [_render_cell(cell) for cell in row.cells][:columns]
+        cells += [""] * (columns - len(cells))
+        lines.append(_render_row(cells))
 
     lines.append("")
     return lines
+
+
+def _render_row(cells: list[str]) -> str:
+    return "| " + " | ".join(cells) + " |"
 
 
 def _render_list(list_node: models.ListNode) -> list[str]:
@@ -74,6 +120,11 @@ def _(node: models.ParagraphNode) -> list[str]:
 @_render_content.register
 def _(node: models.TableNode) -> list[str]:
     return _render_table(node)
+
+
+@_render_content.register
+def _(node: models.CalloutNode) -> list[str]:
+    return [*_render_quote(node.paragraphs), ""]
 
 
 @_render_content.register

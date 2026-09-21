@@ -316,24 +316,46 @@ class DocxParser:
         val = elem.get(qn(_W_VAL))
         return val not in ("false", "0")
 
-    @staticmethod
-    def _parse_table(table: Table) -> models.TableNode:
+    def _parse_table(self, table: Table) -> models.ContentNode:
+        """A table, or the callout box Word drew as a table of one cell.
+
+        Either way the cells are read as the little documents they are, through the
+        same span machinery as body prose. Reading them as text instead is what drops
+        every mark, link and colour a cell holds.
+        """
         all_cells = [cell for row in table.rows for cell in row.cells]
         # A fully-merged table has every grid position pointing to the same TC element.
-        # Normalise it to a single-header node so the renderer can treat it as a callout.
+        # Word has no callout of its own and draws a box this way.
         if all_cells and len({cell._tc for cell in all_cells}) == 1:
-            return models.TableNode(headers=[all_cells[0].text.strip()], rows=[])
+            return models.CalloutNode(paragraphs=self._cell_paragraphs(all_cells[0]))
 
-        rows_data: list[list[str]] = []
-        for row in table.rows:
-            rows_data.append([cell.text.strip() for cell in row.cells])
+        rows = [self._parse_row(row) for row in table.rows]
+        header, body = (rows[0], rows[1:]) if rows else (None, [])
 
-        if rows_data:
-            headers, body = rows_data[0], rows_data[1:]
-        else:
-            headers, body = [], []
+        return models.TableNode(header=header, rows=body)
 
-        return models.TableNode(headers=headers, rows=body)
+    def _parse_row(self, row: Any) -> models.RowNode:
+        return models.RowNode(
+            cells=[
+                models.CellNode(paragraphs=self._cell_paragraphs(cell))
+                for cell in row.cells
+            ]
+        )
+
+    def _cell_paragraphs(self, cell: Any) -> list[models.ParagraphNode]:
+        """The blocks of one cell, empty paragraphs left out.
+
+        Word pads a cell with empty paragraphs to size the box it draws; they say
+        nothing, and carrying them through would put blank lines in a callout and
+        stray breaks in a row.
+        """
+        paragraphs = []
+        for paragraph in cell.paragraphs:
+            spans = self._parse_spans(paragraph)
+            if spans:
+                paragraphs.append(models.ParagraphNode(spans=spans))
+
+        return paragraphs
 
     _BLIP_PATH = (
         f".//{qn('wp:inline')}/{qn('a:graphic')}/{qn('a:graphicData')}"
