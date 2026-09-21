@@ -62,8 +62,10 @@ class TestValidateSections:
         assert [entry.number for entry in result.sections] == ["1", "2", "2.1"]
 
     async def test_asks_again_for_a_section_left_out(self) -> None:
+        one_section_only = _output("1")
+
         with pytest.raises(pydantic_ai.ModelRetry) as err:
-            await _validate(_output("1"))
+            await _validate(one_section_only)
 
         assert "2, 2.1" in str(err.value)
 

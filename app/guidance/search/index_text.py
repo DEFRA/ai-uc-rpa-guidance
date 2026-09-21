@@ -9,7 +9,7 @@ at once.
 from app.guidance.summaries import models as summary_models
 
 
-def _acronyms(acronyms: list[summary_models.Acronym]) -> str:
+def _acronyms(acronyms: list[summary_models.AcronymEntry]) -> str:
     return "; ".join(
         f"{entry.acronym} = {entry.expansion or 'not expanded'}"
         + (f" [{', '.join(entry.sections)}]" if entry.sections else "")

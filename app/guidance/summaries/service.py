@@ -41,7 +41,7 @@ class _SectionIndex:
     """What the section pass produced: the entries, and the acronyms in them."""
 
     entries: list[models.SectionSummary]
-    acronyms: list[models.Acronym]
+    acronyms: list[models.AcronymEntry]
 
 
 class SummaryService:

@@ -8,6 +8,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+MARKDOWN_CONTENT_TYPE = "text/markdown"
 PARSED_PREFIX = "parsed_guidance"
 SUMMARY_FILENAME = "summary.md"
 
@@ -126,7 +127,7 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
             Bucket=self.bucket,
             Key=key,
             Body=markdown.encode(),
-            ContentType="text/markdown",
+            ContentType=MARKDOWN_CONTENT_TYPE,
         )
 
         logger.debug("Uploaded markdown to s3://%s/%s", self.bucket, key)
@@ -212,7 +213,7 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
             Bucket=self.bucket,
             Key=key,
             Body=markdown.encode(),
-            ContentType="text/markdown",
+            ContentType=MARKDOWN_CONTENT_TYPE,
         )
 
         logger.debug("Uploaded summary to s3://%s/%s", self.bucket, key)
@@ -273,7 +274,7 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
             Bucket=self.bucket,
             Key=key,
             Body=markdown.encode(),
-            ContentType="text/markdown",
+            ContentType=MARKDOWN_CONTENT_TYPE,
         )
 
         logger.debug(

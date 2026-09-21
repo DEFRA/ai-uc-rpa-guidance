@@ -143,7 +143,7 @@ class SectionAcronym:
 
 
 @dataclass
-class Acronym:
+class AcronymEntry:
     """One entry of a document's acronym index.
 
     The index is a reverse one: the acronym is the key, and it names the
@@ -240,7 +240,7 @@ def _spell_out(acronyms: list[SectionAcronym]) -> str:
 
 def build_acronym_index(
     by_section: list[tuple[str, list[SectionAcronym]]],
-) -> list[Acronym]:
+) -> list[AcronymEntry]:
     """Turn the acronyms each section uses into the document's reverse index.
 
     The index is derived from the section entries rather than asked for
@@ -256,12 +256,13 @@ def build_acronym_index(
     Returns:
         One entry per distinct acronym, alphabetically.
     """
-    index: dict[str, Acronym] = {}
+    index: dict[str, AcronymEntry] = {}
 
     for number, acronyms in by_section:
         for used in acronyms:
             entry = index.setdefault(
-                used.acronym, Acronym(acronym=used.acronym, expansion=None, sections=[])
+                used.acronym,
+                AcronymEntry(acronym=used.acronym, expansion=None, sections=[]),
             )
 
             if entry.expansion is None and used.expansion:
@@ -287,7 +288,7 @@ class DocumentSummary:
     about: str
     used_for: str
     keywords: list[str]
-    acronyms: list[Acronym]
+    acronyms: list[AcronymEntry]
     path: str
     start_path: str
     model: str
@@ -311,7 +312,7 @@ class DocumentSummary:
             used_for=doc["used_for"],
             keywords=doc.get("keywords", []),
             acronyms=[
-                Acronym(
+                AcronymEntry(
                     acronym=entry["acronym"],
                     expansion=entry.get("expansion"),
                     sections=entry.get("sections", []),

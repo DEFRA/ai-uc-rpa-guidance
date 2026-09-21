@@ -16,7 +16,7 @@ def _summary(**overrides: object) -> models.DocumentSummary:
         "used_for": "What it is used for.",
         "keywords": ["ROCR"],
         "acronyms": [
-            models.Acronym(
+            models.AcronymEntry(
                 acronym="SDA",
                 expansion="Severely Disadvantaged Area",
                 sections=["1"],
