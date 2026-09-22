@@ -136,6 +136,70 @@ class TestDownloadManifest:
         assert result == json_str
 
 
+class TestDeleteSummaries:
+    @pytest.mark.asyncio
+    async def test_deletes_every_summary_object(
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
+    ) -> None:
+        paginator = MagicMock()
+        paginator.paginate.return_value = [
+            {
+                "Contents": [
+                    {"Key": "parsed_guidance/doc-1/summary.md"},
+                    {"Key": "parsed_guidance/doc-1/content.md"},
+                ]
+            },
+            {"Contents": [{"Key": "parsed_guidance/doc-2/summary.md"}]},
+        ]
+        mock_s3.get_paginator.return_value = paginator
+
+        deleted = await repo.delete_summaries()
+
+        assert deleted == 2
+        mock_s3.delete_objects.assert_called_once_with(
+            Bucket="guidance-bucket",
+            Delete={
+                "Objects": [
+                    {"Key": "parsed_guidance/doc-1/summary.md"},
+                    {"Key": "parsed_guidance/doc-2/summary.md"},
+                ]
+            },
+        )
+
+    @pytest.mark.asyncio
+    async def test_leaves_the_parse_outputs_alone(
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
+    ) -> None:
+        paginator = MagicMock()
+        paginator.paginate.return_value = [
+            {
+                "Contents": [
+                    {"Key": "parsed_guidance/doc-1/content.md"},
+                    {"Key": "parsed_guidance/doc-1/manifest.json"},
+                    {"Key": "parsed_guidance/doc-1/sections/1.md"},
+                    {"Key": "parsed_guidance/doc-1/images/img_1.png"},
+                ]
+            }
+        ]
+        mock_s3.get_paginator.return_value = paginator
+
+        deleted = await repo.delete_summaries()
+
+        assert deleted == 0
+        mock_s3.delete_objects.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_deletes_nothing_from_an_empty_bucket(
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
+    ) -> None:
+        paginator = MagicMock()
+        paginator.paginate.return_value = [{}]
+        mock_s3.get_paginator.return_value = paginator
+
+        assert await repo.delete_summaries() == 0
+        mock_s3.delete_objects.assert_not_called()
+
+
 class TestUploadSection:
     @pytest.mark.asyncio
     async def test_uploads_to_correct_key(

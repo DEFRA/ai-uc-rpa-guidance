@@ -8,6 +8,18 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+MARKDOWN_CONTENT_TYPE = "text/markdown"
+PARSED_PREFIX = "parsed_guidance"
+SUMMARY_FILENAME = "summary.md"
+
+# S3 accepts at most this many keys in one delete_objects call.
+_DELETE_BATCH_SIZE = 1000
+
+
+def summary_key(document_id: uuid.UUID) -> str:
+    """Return the storage key holding a document's summary."""
+    return f"{PARSED_PREFIX}/{document_id}/{SUMMARY_FILENAME}"
+
 
 class AbstractGuidanceStorageRepository(ABC):
     """Abstract base class for guidance document storage repositories."""
@@ -31,6 +43,14 @@ class AbstractGuidanceStorageRepository(ABC):
     @abstractmethod
     async def download_manifest(self, document_id: uuid.UUID) -> str:
         """Download the document manifest JSON from storage."""
+
+    @abstractmethod
+    async def upload_summary(self, document_id: uuid.UUID, markdown: str) -> str:
+        """Upload the document's rendered summary Markdown, returning its path."""
+
+    @abstractmethod
+    async def delete_summaries(self) -> int:
+        """Delete every stored summary, returning how many were removed."""
 
     @abstractmethod
     async def upload_section(
@@ -107,7 +127,7 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
             Bucket=self.bucket,
             Key=key,
             Body=markdown.encode(),
-            ContentType="text/markdown",
+            ContentType=MARKDOWN_CONTENT_TYPE,
         )
 
         logger.debug("Uploaded markdown to s3://%s/%s", self.bucket, key)
@@ -171,6 +191,72 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
 
         return body.decode()
 
+    async def upload_summary(self, document_id: uuid.UUID, markdown: str) -> str:
+        """Upload the summary to parsed_guidance/{document_id}/summary.md.
+
+        The summary is written beside the parse outputs so that anything
+        reading a document's prefix finds it there. Nothing in this service
+        reads it back — the queryable copy lives in Mongo — but the search
+        index this feeds will be built from the document prefix.
+
+        Args:
+            document_id: The guidance document ID.
+            markdown: The rendered summary Markdown.
+
+        Returns:
+            The storage path written, as s3://bucket/key.
+        """
+        key = summary_key(document_id)
+
+        await asyncio.to_thread(
+            self.s3.put_object,
+            Bucket=self.bucket,
+            Key=key,
+            Body=markdown.encode(),
+            ContentType=MARKDOWN_CONTENT_TYPE,
+        )
+
+        logger.debug("Uploaded summary to s3://%s/%s", self.bucket, key)
+
+        return f"s3://{self.bucket}/{key}"
+
+    async def delete_summaries(self) -> int:
+        """Delete every summary under the parsed-guidance prefix.
+
+        The bucket is listed rather than the stored summary records, so a
+        summary whose record was lost is removed too: after this, no summary
+        object survives that the rebuild did not write.
+
+        Returns:
+            How many summary objects were deleted.
+        """
+        keys = await asyncio.to_thread(self._list_summary_keys)
+
+        for start in range(0, len(keys), _DELETE_BATCH_SIZE):
+            batch = keys[start : start + _DELETE_BATCH_SIZE]
+            await asyncio.to_thread(
+                self.s3.delete_objects,
+                Bucket=self.bucket,
+                Delete={"Objects": [{"Key": key} for key in batch]},
+            )
+
+        logger.info("Deleted %d summary object(s) from %s", len(keys), self.bucket)
+
+        return len(keys)
+
+    def _list_summary_keys(self) -> list[str]:
+        """Return the key of every summary object in the bucket."""
+        paginator = self.s3.get_paginator("list_objects_v2")
+
+        return [
+            item["Key"]
+            for page in paginator.paginate(
+                Bucket=self.bucket, Prefix=f"{PARSED_PREFIX}/"
+            )
+            for item in page.get("Contents", [])
+            if item["Key"].endswith(f"/{SUMMARY_FILENAME}")
+        ]
+
     async def upload_section(
         self, document_id: uuid.UUID, section_number: str, markdown: str
     ) -> None:
@@ -188,7 +274,7 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
             Bucket=self.bucket,
             Key=key,
             Body=markdown.encode(),
-            ContentType="text/markdown",
+            ContentType=MARKDOWN_CONTENT_TYPE,
         )
 
         logger.debug(

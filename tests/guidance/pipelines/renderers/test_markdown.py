@@ -1,4 +1,6 @@
 from app.guidance.pipeline.models import (
+    CalloutNode,
+    CellNode,
     DocumentTree,
     ImageNode,
     ImageSpan,
@@ -6,10 +8,26 @@ from app.guidance.pipeline.models import (
     ListItemNode,
     ListNode,
     ParagraphNode,
+    RowNode,
     SectionNode,
     TableNode,
 )
 from app.guidance.pipeline.renderers.markdown import section_to_markdown, to_markdown
+
+
+def _cell(*spans: InlineSpan) -> CellNode:
+    return CellNode(paragraphs=[ParagraphNode(spans=list(spans))])
+
+
+def _row(*texts: str) -> RowNode:
+    return RowNode(cells=[_cell(InlineSpan(text=text)) for text in texts])
+
+
+def _tree_of(*content) -> DocumentTree:
+    return DocumentTree(
+        title="T",
+        children=[SectionNode(heading="S", level=1, number="1", content=list(content))],
+    )
 
 
 class TestMarkdownRenderer:
@@ -31,8 +49,8 @@ class TestMarkdownRenderer:
                             number="1.1",
                             content=[
                                 TableNode(
-                                    headers=["Col A", "Col B"],
-                                    rows=[["r1a", "r1b"], ["r2a", "r2b"]],
+                                    header=_row("Col A", "Col B"),
+                                    rows=[_row("r1a", "r1b"), _row("r2a", "r2b")],
                                 ),
                                 ImageNode(
                                     rel_path="output/images/img_1.png",
@@ -104,21 +122,78 @@ class TestMarkdownRenderer:
         md = to_markdown(tree)
         assert "- Select the ![](/img/icon.png)binocular icon" in md
 
-    def test_single_cell_table_renders_as_blockquote(self):
-        tree = DocumentTree(
-            title="T",
-            children=[
-                SectionNode(
-                    heading="S",
-                    level=1,
-                    number="1",
-                    content=[TableNode(headers=["Note: review this policy."], rows=[])],
+    def test_callout_renders_as_blockquote(self):
+        md = to_markdown(
+            _tree_of(
+                CalloutNode(
+                    paragraphs=[
+                        ParagraphNode(spans=[InlineSpan(text="Note: review this.")])
+                    ]
                 )
-            ],
+            )
         )
-        md = to_markdown(tree)
-        assert "> Note: review this policy." in md
+        assert "> Note: review this." in md
         assert "|" not in md
+
+    def test_callout_marks_every_line_of_every_block(self):
+        # A blockquote marker on the first line only is not a blockquote with three
+        # paragraphs in it; it is one run-on paragraph, and whatever follows a blank
+        # line is outside the box altogether.
+        md = to_markdown(
+            _tree_of(
+                CalloutNode(
+                    paragraphs=[
+                        ParagraphNode(spans=[InlineSpan(text="Version of the guide:")]),
+                        ParagraphNode(spans=[InlineSpan(text="Case put on hold.")]),
+                        ParagraphNode(spans=[InlineSpan(text="Name and date")]),
+                    ]
+                )
+            )
+        )
+        assert (
+            "> Version of the guide:\n>\n> Case put on hold.\n>\n> Name and date" in md
+        )
+
+    def test_callout_keeps_the_colour_marking_a_part_to_fill_in(self):
+        md = to_markdown(
+            _tree_of(
+                CalloutNode(
+                    paragraphs=[
+                        ParagraphNode(
+                            spans=[
+                                InlineSpan(text="Version of the guide used:"),
+                                InlineSpan(text="<version>", color="FF0000"),
+                            ]
+                        )
+                    ]
+                )
+            )
+        )
+        assert "> Version of the guide used:[&lt;version&gt;]{.red}" in md
+
+    def test_cell_keeps_its_blocks_and_escapes_what_would_end_it(self):
+        md = to_markdown(
+            _tree_of(
+                TableNode(
+                    header=_row("Action"),
+                    rows=[
+                        RowNode(
+                            cells=[
+                                CellNode(
+                                    paragraphs=[
+                                        ParagraphNode(
+                                            spans=[InlineSpan(text="Do this:")]
+                                        ),
+                                        ParagraphNode(spans=[InlineSpan(text="a | b")]),
+                                    ]
+                                )
+                            ]
+                        )
+                    ],
+                )
+            )
+        )
+        assert "| Do this:<br>a \\| b |" in md
 
     def test_empty_tree(self):
         tree = DocumentTree(title="Empty")

@@ -118,14 +118,69 @@ class ListNode(Serializable):
 
 
 @dataclass
+class CellNode(Serializable):
+    """One table cell: the paragraphs it holds.
+
+    A cell is a little document of its own, not a string. Word lets it hold several
+    paragraphs, each with all the runs, links and colours any other paragraph has, so
+    reading a cell as text is what silently drops every one of them - and leaves
+    whatever the author typed in angle brackets unescaped, to be swallowed by the
+    first thing that parses HTML.
+    """
+
+    paragraphs: list[ParagraphNode] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CellNode:
+        return cls(
+            paragraphs=[ParagraphNode.from_dict(p) for p in data.get("paragraphs", [])]
+        )
+
+
+@dataclass
+class RowNode(Serializable):
+    """One row of a table. A row of its own type, because a bare list of lists of
+    cells has nowhere for the serialiser to hook onto."""
+
+    cells: list[CellNode] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> RowNode:
+        return cls(cells=[CellNode.from_dict(c) for c in data.get("cells", [])])
+
+
+@dataclass
+class CalloutNode(Serializable):
+    """A box Word drew, which it draws as a table of one cell.
+
+    A node of its own rather than a table with a single header: a callout is not a
+    table, it is rendered differently, and a shape that has to be recognised by
+    counting cells is a special case waiting to be missed by the next reader of it.
+    """
+
+    paragraphs: list[ParagraphNode] = field(default_factory=list)
+    node_type: str = field(default="callout", init=False)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CalloutNode:
+        return cls(
+            paragraphs=[ParagraphNode.from_dict(p) for p in data.get("paragraphs", [])]
+        )
+
+
+@dataclass
 class TableNode(Serializable):
-    headers: list[str]
-    rows: list[list[str]]
+    header: RowNode | None = None
+    rows: list[RowNode] = field(default_factory=list)
     node_type: str = field(default="table", init=False)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TableNode:
-        return cls(headers=data["headers"], rows=data["rows"])
+        header = data.get("header")
+        return cls(
+            header=RowNode.from_dict(header) if header else None,
+            rows=[RowNode.from_dict(r) for r in data.get("rows", [])],
+        )
 
 
 @dataclass
@@ -144,12 +199,13 @@ class ImageNode(Serializable):
         return cls(rel_path=data["rel_path"], alt_text=data.get("alt_text", ""))
 
 
-ContentNode = ParagraphNode | ListNode | TableNode | ImageNode
+ContentNode = ParagraphNode | ListNode | TableNode | CalloutNode | ImageNode
 
 _NODE_REGISTRY: dict[str, type] = {
     "paragraph": ParagraphNode,
     "list": ListNode,
     "table": TableNode,
+    "callout": CalloutNode,
     "image": ImageNode,
 }
 

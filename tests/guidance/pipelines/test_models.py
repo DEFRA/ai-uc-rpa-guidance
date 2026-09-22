@@ -3,6 +3,8 @@ import json
 import pytest
 
 from app.guidance.pipeline.models import (
+    CalloutNode,
+    CellNode,
     DocumentTree,
     ImageNode,
     ImageSpan,
@@ -10,6 +12,7 @@ from app.guidance.pipeline.models import (
     ListItemNode,
     ListNode,
     ParagraphNode,
+    RowNode,
     SectionNode,
     TableNode,
 )
@@ -103,19 +106,48 @@ class TestListNode:
         assert node.items[0].spans[0].text == "First"
 
 
+def _cell(text: str) -> CellNode:
+    return CellNode(paragraphs=[ParagraphNode(spans=[InlineSpan(text=text)])])
+
+
+def _row(*texts: str) -> RowNode:
+    return RowNode(cells=[_cell(text) for text in texts])
+
+
 class TestTableNode:
     def test_to_dict(self):
-        node = TableNode(headers=["A", "B"], rows=[["1", "2"], ["3", "4"]])
+        node = TableNode(header=_row("A", "B"), rows=[_row("1", "2")])
         d = node.to_dict()
         assert d["node_type"] == "table"
-        assert d["headers"] == ["A", "B"]
-        assert d["rows"] == [["1", "2"], ["3", "4"]]
+        assert d["header"]["cells"][0]["paragraphs"][0]["spans"][0]["text"] == "A"
+        assert d["rows"][0]["cells"][1]["paragraphs"][0]["spans"][0]["text"] == "2"
 
     def test_from_dict(self):
-        data = {"headers": ["X"], "rows": [["val"]]}
-        node = TableNode.from_dict(data)
-        assert node.headers == ["X"]
-        assert node.rows == [["val"]]
+        node = TableNode.from_dict(
+            TableNode(header=_row("X"), rows=[_row("val")]).to_dict()
+        )
+        assert node.header.cells[0].paragraphs[0].spans[0].text == "X"
+        assert node.rows[0].cells[0].paragraphs[0].spans[0].text == "val"
+
+    def test_from_dict_without_a_header(self):
+        node = TableNode.from_dict({})
+        assert node.header is None
+        assert node.rows == []
+
+
+class TestCalloutNode:
+    def test_round_trip(self):
+        node = CalloutNode(
+            paragraphs=[
+                ParagraphNode(spans=[InlineSpan(text="Version of the guide used:")]),
+                ParagraphNode(spans=[InlineSpan(text="Name and date", color="FF0000")]),
+            ]
+        )
+        restored = CalloutNode.from_dict(node.to_dict())
+        assert node.to_dict()["node_type"] == "callout"
+        assert len(restored.paragraphs) == 2
+        # The colour is what the callout is for: it marks the parts to fill in.
+        assert restored.paragraphs[1].spans[0].color == "FF0000"
 
 
 class TestImageNode:
@@ -150,7 +182,7 @@ class TestSectionNode:
                     heading="Details",
                     level=2,
                     number="1.1",
-                    content=[TableNode(headers=["Col"], rows=[["val"]])],
+                    content=[TableNode(header=_row("Col"), rows=[_row("val")])],
                 )
             ],
         )
