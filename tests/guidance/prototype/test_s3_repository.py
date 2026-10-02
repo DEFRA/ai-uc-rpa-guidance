@@ -1,6 +1,9 @@
 """Tests for PrototypeGuideS3Repository."""
 
+import io
 from unittest.mock import MagicMock
+
+import pytest
 
 from app.guidance.prototype import s3_repository
 
@@ -129,51 +132,69 @@ class TestPurge:
         client.delete_objects.assert_not_called()
 
 
-class TestDownloadUpload:
-    """Test download_upload."""
+class TestOpenUpload:
+    """Test open_upload."""
 
-    async def test_downloads_from_the_bucket_and_key_given(self) -> None:
-        client = _mock_s3_client(b"PK")
+    async def test_opens_the_bucket_and_key_given_for_ranged_reads(self) -> None:
+        client = MagicMock()
+        client.head_object.return_value = {"ContentLength": 2}
+        body = MagicMock()
+        body.read.return_value = b"PK"
+        client.get_object.return_value = {"Body": body}
         repo = s3_repository.PrototypeGuideS3Repository(client, _BUCKET)
 
-        body = await repo.download_upload("upload-bucket", "prototype_uploads/u/f")
+        reader = await repo.open_upload("upload-bucket", "prototype_uploads/u/f")
 
-        assert body == b"PK"
-        client.get_object.assert_called_once_with(
+        assert reader.read() == b"PK"
+        client.head_object.assert_called_once_with(
             Bucket="upload-bucket", Key="prototype_uploads/u/f"
+        )
+        client.get_object.assert_called_once_with(
+            Bucket="upload-bucket", Key="prototype_uploads/u/f", Range="bytes=0-1"
         )
 
 
-class TestUploadFiles:
-    """Test upload_files."""
+class TestUploadStream:
+    """Test upload_stream."""
 
-    async def test_writes_each_file_under_the_prefix_with_its_type(self) -> None:
+    @pytest.mark.parametrize(
+        ("name", "content_type"),
+        [
+            ("manifest.json", "application/json"),
+            (
+                f"{_DOCUMENT_ID}/{_VERSION_ID}/content.md",
+                "text/markdown; charset=utf-8",
+            ),
+            (f"{_DOCUMENT_ID}/assets/digest.png", "image/png"),
+            (f"{_DOCUMENT_ID}/assets/digest.unknownext", "application/octet-stream"),
+        ],
+    )
+    async def test_streams_the_file_under_the_prefix_with_its_type(
+        self, name: str, content_type: str
+    ) -> None:
+        client = MagicMock()
+        repo = s3_repository.PrototypeGuideS3Repository(client, _BUCKET)
+        stream = io.BytesIO(b"body")
+
+        await repo.upload_stream(name, stream)
+
+        client.upload_fileobj.assert_called_once_with(
+            Fileobj=stream,
+            Bucket=_BUCKET,
+            Key=f"prototype_guides/{name}",
+            ExtraArgs={"ContentType": content_type},
+        )
+
+
+class TestDeleteUpload:
+    """Test delete_upload."""
+
+    async def test_deletes_the_bucket_and_key_given(self) -> None:
         client = MagicMock()
         repo = s3_repository.PrototypeGuideS3Repository(client, _BUCKET)
 
-        await repo.upload_files(
-            {
-                "manifest.json": b"{}",
-                f"{_DOCUMENT_ID}/{_VERSION_ID}/content.md": b"# Title",
-                f"{_DOCUMENT_ID}/assets/digest.png": b"\x89PNG",
-                f"{_DOCUMENT_ID}/assets/digest.unknownext": b"?",
-            }
-        )
+        await repo.delete_upload("upload-bucket", "prototype_uploads/u/f")
 
-        written = {
-            call.kwargs["Key"]: call.kwargs["ContentType"]
-            for call in client.put_object.call_args_list
-        }
-        assert written == {
-            "prototype_guides/manifest.json": "application/json",
-            f"prototype_guides/{_DOCUMENT_ID}/{_VERSION_ID}/content.md": (
-                "text/markdown; charset=utf-8"
-            ),
-            f"prototype_guides/{_DOCUMENT_ID}/assets/digest.png": "image/png",
-            f"prototype_guides/{_DOCUMENT_ID}/assets/digest.unknownext": (
-                "application/octet-stream"
-            ),
-        }
-        assert {call.kwargs["Bucket"] for call in client.put_object.call_args_list} == {
-            _BUCKET
-        }
+        client.delete_object.assert_called_once_with(
+            Bucket="upload-bucket", Key="prototype_uploads/u/f"
+        )

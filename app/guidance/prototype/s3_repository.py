@@ -4,7 +4,7 @@ Unlike app/guidance/documents, which is written via the CDP-uploader pipeline
 and read/written through GuidanceS3Repository, this data is produced entirely
 outside this service (by scripts/parse_docx_for_s3.py in the
 rpa-ai-guidance-hub-api repo) and pushed with a manual `aws s3 sync`. This
-repository writes guides only by unpacking an uploaded zip of them, and can
+repository writes guides only by streaming them out of an uploaded zip, and can
 purge the whole prefix. It lives under its own key prefix
 (prototype_guides/) so it can never collide with parsed_guidance/.
 """
@@ -12,7 +12,9 @@ purge the whole prefix. It lives under its own key prefix
 import asyncio
 import logging
 import mimetypes
-from typing import Any
+from typing import IO, Any
+
+from app.guidance.prototype import s3_range_reader
 
 logger = logging.getLogger(__name__)
 
@@ -101,42 +103,48 @@ class PrototypeGuideS3Repository:
 
         return body
 
-    async def download_upload(self, bucket: str, key: str) -> bytes:
-        """Download a file CDP uploader delivered, such as a zip of guides.
+    async def open_upload(self, bucket: str, key: str) -> IO[bytes]:
+        """Open a file CDP uploader delivered, read by byte range as needed.
 
         Args:
             bucket: The bucket CDP uploader put the file in.
             key: The key CDP uploader put the file at.
 
         Returns:
-            The file's bytes.
+            A seekable binary reader over the file; reads block, so use it
+            from a worker thread.
+
+        Raises:
+            OSError: If the file cannot be looked up.
         """
-        response = await asyncio.to_thread(self.s3.get_object, Bucket=bucket, Key=key)
-        body: bytes = await asyncio.to_thread(response["Body"].read)
+        return await asyncio.to_thread(
+            s3_range_reader.open_object, self.s3, bucket, key
+        )
 
-        return body
-
-    async def upload_files(self, files: dict[str, bytes]) -> None:
-        """Write files under prototype_guides/, overwriting any already there.
+    async def delete_upload(self, bucket: str, key: str) -> None:
+        """Delete a file CDP uploader delivered, once it has been dealt with.
 
         Args:
-            files: Each file's bytes, keyed by its path relative to
-                prototype_guides/.
+            bucket: The bucket CDP uploader put the file in.
+            key: The key CDP uploader put the file at.
         """
-        for name, body in files.items():
-            await asyncio.to_thread(
-                self.s3.put_object,
-                Bucket=self.bucket,
-                Key=f"{PROTOTYPE_PREFIX}/{name}",
-                Body=body,
-                ContentType=_content_type(name),
-            )
+        await asyncio.to_thread(self.s3.delete_object, Bucket=bucket, Key=key)
 
-        logger.info(
-            "Wrote %d prototype guide objects to s3://%s/%s/",
-            len(files),
-            self.bucket,
-            PROTOTYPE_PREFIX,
+        logger.info("Deleted uploaded file s3://%s/%s", bucket, key)
+
+    async def upload_stream(self, name: str, stream: Any) -> None:
+        """Stream one file to prototype_guides/, overwriting any already there.
+
+        Args:
+            name: Its path relative to prototype_guides/.
+            stream: A readable binary stream of its contents.
+        """
+        await asyncio.to_thread(
+            self.s3.upload_fileobj,
+            Fileobj=stream,
+            Bucket=self.bucket,
+            Key=f"{PROTOTYPE_PREFIX}/{name}",
+            ExtraArgs={"ContentType": _content_type(name)},
         )
 
     async def purge(self) -> int:

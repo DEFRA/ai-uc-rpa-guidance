@@ -202,14 +202,31 @@ any other upload:
    zip to CDP uploader against that id. CDP uploader stores it under
    `prototype_uploads/` in the same bucket.
 2. Once it is scanned, CDP uploader calls
-   `POST /prototype/guides/uploads/callback`. The zip is checked first --
-   that it is a zip, has a manifest where expected, and has no entry that
-   would escape `prototype_guides/` -- and only then is `prototype_guides/`
-   purged and the zip unpacked into it.
+   `POST /prototype/guides/uploads/callback`. The zip is read where it lies,
+   by byte range from S3, and one entry at a time, so neither it nor its
+   contents are ever held in memory. It is checked in full first: its index
+   (a manifest where expected, no entry that would escape
+   `prototype_guides/`, at most 5,000 files and 400 MB unzipped), then every
+   entry read through to check its CRC. Only then is `prototype_guides/`
+   purged and each entry streamed into it.
 
-A zip that fails the check leaves the current guides untouched. Its callback
-is still answered `204`, because CDP uploader retries a failed callback and
-retrying cannot fix the zip; the rejection is logged.
+Uploads are limited to 350 MB; CDP uploader rejects anything larger before
+it reaches the bucket. The limits are about ten times the guides as first
+uploaded (a 35 MB zip of 443 files). Any problem reading the zip, from the
+zip or from S3, is treated as the zip being corrupt.
+
+A zip that fails the check -- not a zip, corrupt, no manifest where
+expected, or an entry that would escape `prototype_guides/` -- leaves the
+current guides untouched. Its callback is still answered `204`, because CDP
+uploader retries a failed callback and retrying cannot fix the zip; the
+rejection is logged.
+
+The zip itself is deleted from `prototype_uploads/` once it has been dealt
+with: after a successful unpack, or when it fails the check. Any other failure
+(S3 erroring part-way, say) keeps it, so the uploader's retry can try again.
+Because the callback is unauthenticated and names its own bucket and key, it
+only ever reads or deletes a file under `prototype_uploads/` in the guidance
+bucket; anything else is ignored.
 
 ### Purging
 

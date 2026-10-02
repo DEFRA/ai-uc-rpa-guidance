@@ -2,6 +2,7 @@
 
 import io
 import zipfile
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -18,8 +19,14 @@ def _zip(entries: dict[str, bytes]) -> bytes:
     return buffer.getvalue()
 
 
+_BUCKET = uploads.settings.guidance_s3_bucket
+_KEY = "prototype_uploads/upload-1/file-1"
+
+
 def _callback(
     file_status: str = "complete",
+    bucket: str = _BUCKET,
+    key: str = _KEY,
 ) -> document_schemas.CdpUploaderStatusPayload:
     return document_schemas.CdpUploaderStatusPayload.model_validate(
         {
@@ -31,8 +38,8 @@ def _callback(
                     "fileStatus": file_status,
                     "contentLength": 10,
                     "checksumSha256": "abc",
-                    "s3Key": "prototype_uploads/file-1",
-                    "s3Bucket": "guidance-bucket",
+                    "s3Key": key,
+                    "s3Bucket": bucket,
                 }
             },
         }
@@ -40,10 +47,20 @@ def _callback(
 
 
 def _repo(zip_bytes: bytes) -> MagicMock:
+    """A repository serving `zip_bytes` as the upload, recording what it writes."""
     repo = MagicMock()
-    repo.download_upload = AsyncMock(return_value=zip_bytes)
+    repo.written = {}
+
+    async def open_upload(_bucket: str, _key: str) -> io.BytesIO:
+        return io.BytesIO(zip_bytes)
+
+    async def upload_stream(name: str, stream: Any) -> None:
+        repo.written[name] = stream.read()
+
+    repo.open_upload = AsyncMock(side_effect=open_upload)
     repo.purge = AsyncMock(return_value=5)
-    repo.upload_files = AsyncMock()
+    repo.upload_stream = AsyncMock(side_effect=upload_stream)
+    repo.delete_upload = AsyncMock()
     return repo
 
 
@@ -74,6 +91,7 @@ class TestInitiateUpload:
         assert body["redirect"] == "/admin/prototype-guides"
         assert body["s3Path"] == uploads.UPLOAD_PATH
         assert body["mimeTypes"] == ["application/zip", "application/x-zip-compressed"]
+        assert body["maxFileSize"] == uploads.MAX_UPLOAD_BYTES
         assert body["callback"].endswith("/prototype/guides/uploads/callback")
 
     async def test_raises_when_the_uploader_fails(self) -> None:
@@ -93,32 +111,102 @@ class TestInitiateUpload:
 class TestHandleCallback:
     """Test handle_callback."""
 
-    async def test_purges_then_writes_the_unpacked_guides(self) -> None:
+    async def test_verifies_purges_streams_the_guides_then_deletes_the_zip(
+        self,
+    ) -> None:
         repo = _repo(_zip({"manifest.json": b"{}", "doc/v/content.md": b"# G"}))
         calls = MagicMock()
         calls.attach_mock(repo.purge, "purge")
-        calls.attach_mock(repo.upload_files, "upload_files")
+        calls.attach_mock(repo.upload_stream, "upload_stream")
+        calls.attach_mock(repo.delete_upload, "delete_upload")
 
         written = await uploads.handle_callback(_callback(), repo)
 
         assert written == 2
-        repo.download_upload.assert_awaited_once_with(
-            "guidance-bucket", "prototype_uploads/file-1"
-        )
-        assert [name for name, *_ in calls.mock_calls] == ["purge", "upload_files"]
-        repo.upload_files.assert_awaited_once_with(
-            {"manifest.json": b"{}", "doc/v/content.md": b"# G"}
-        )
+        repo.open_upload.assert_awaited_once_with(_BUCKET, _KEY)
+        assert [name for name, *_ in calls.mock_calls] == [
+            "purge",
+            "upload_stream",
+            "upload_stream",
+            "delete_upload",
+        ]
+        assert repo.written == {"manifest.json": b"{}", "doc/v/content.md": b"# G"}
+        repo.delete_upload.assert_awaited_once_with(_BUCKET, _KEY)
 
-    async def test_leaves_the_guides_alone_when_the_zip_is_invalid(self) -> None:
+    async def test_leaves_the_guides_alone_and_deletes_an_invalid_zip(self) -> None:
         repo = _repo(_zip({"doc/v/content.md": b"# G"}))
         callback = _callback()
 
-        with pytest.raises(unpack.InvalidGuidesZipError):
+        with pytest.raises(unpack.InvalidGuidesZipError, match="manifest"):
             await uploads.handle_callback(callback, repo)
 
         repo.purge.assert_not_awaited()
-        repo.upload_files.assert_not_awaited()
+        repo.upload_stream.assert_not_awaited()
+        repo.delete_upload.assert_awaited_once_with(_BUCKET, _KEY)
+
+    async def test_deletes_a_file_that_is_not_a_zip(self) -> None:
+        repo = _repo(b"not a zip")
+        callback = _callback()
+
+        with pytest.raises(unpack.InvalidGuidesZipError, match="not a zip"):
+            await uploads.handle_callback(callback, repo)
+
+        repo.purge.assert_not_awaited()
+        repo.delete_upload.assert_awaited_once_with(_BUCKET, _KEY)
+
+    async def test_finds_a_corrupt_entry_before_purging(self) -> None:
+        zip_bytes = bytearray(_zip({"manifest.json": b"{" + b"x" * 200 + b"}"}))
+        offset = zip_bytes.index(b"manifest.json") + len(b"manifest.json") + 2
+        zip_bytes[offset] ^= 0xFF
+        repo = _repo(bytes(zip_bytes))
+        callback = _callback()
+
+        with pytest.raises(unpack.InvalidGuidesZipError, match="corrupt"):
+            await uploads.handle_callback(callback, repo)
+
+        repo.purge.assert_not_awaited()
+        repo.delete_upload.assert_awaited_once_with(_BUCKET, _KEY)
+
+    async def test_treats_an_unreadable_upload_as_corrupt(self) -> None:
+        repo = _repo(b"")
+        repo.open_upload.side_effect = OSError("Cannot read s3://bucket/key")
+        callback = _callback()
+
+        with pytest.raises(unpack.InvalidGuidesZipError, match="cannot be read"):
+            await uploads.handle_callback(callback, repo)
+
+        repo.purge.assert_not_awaited()
+        repo.delete_upload.assert_awaited_once_with(_BUCKET, _KEY)
+
+    async def test_keeps_the_zip_when_replacing_the_guides_fails(self) -> None:
+        repo = _repo(_zip({"manifest.json": b"{}"}))
+        repo.purge.side_effect = RuntimeError("S3 unavailable")
+        callback = _callback()
+
+        with pytest.raises(RuntimeError, match="S3 unavailable"):
+            await uploads.handle_callback(callback, repo)
+
+        repo.delete_upload.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        ("bucket", "key"),
+        [
+            pytest.param("someone-elses-bucket", _KEY, id="other-bucket"),
+            pytest.param(_BUCKET, "parsed_guidance/doc/content.md", id="other-prefix"),
+            pytest.param(_BUCKET, "prototype_uploadsX/file", id="prefix-lookalike"),
+        ],
+    )
+    async def test_ignores_a_file_outside_the_upload_prefix(
+        self, bucket: str, key: str
+    ) -> None:
+        repo = _repo(_zip({"manifest.json": b"{}"}))
+
+        written = await uploads.handle_callback(_callback(bucket=bucket, key=key), repo)
+
+        assert written == 0
+        repo.open_upload.assert_not_awaited()
+        repo.delete_upload.assert_not_awaited()
+        repo.purge.assert_not_awaited()
 
     async def test_does_nothing_for_a_rejected_file(self) -> None:
         repo = _repo(b"")
@@ -126,5 +214,6 @@ class TestHandleCallback:
         written = await uploads.handle_callback(_callback("rejected"), repo)
 
         assert written == 0
-        repo.download_upload.assert_not_awaited()
+        repo.open_upload.assert_not_awaited()
         repo.purge.assert_not_awaited()
+        repo.delete_upload.assert_not_awaited()

@@ -4,10 +4,22 @@ The zip goes the same way every upload does -- virus-scanned by CDP uploader
 and delivered to the guidance bucket, under its own prototype_uploads/ path --
 and the callback unpacks it into prototype_guides/. An upload *replaces* the
 guides: the old ones are purged first, so the manifest and the files beside
-it always come from one zip. The zip is checked before anything is purged, so
-a bad upload leaves the current guides where they are.
+it always come from one zip.
+
+The zip is read where it lies, by byte range, and one entry at a time, so
+neither it nor its contents are ever held in memory. It is checked in full
+before anything is purged -- its index first, then every entry read through
+and discarded -- so a bad upload leaves the current guides where they are.
+Any problem reading it is taken to mean the zip is corrupt.
+
+The zip itself is deleted once it has been dealt with -- unpacked, or found
+not to be a zip of guides -- so nothing is left under prototype_uploads/. Any
+other failure keeps it, so CDP uploader's retry of the callback can try again.
+The callback is unauthenticated and names its own bucket and key, so only a
+file under prototype_uploads/ in the guidance bucket is ever read or deleted.
 """
 
+import asyncio
 import logging
 
 from app import config
@@ -22,6 +34,10 @@ settings = config.get_config()
 UPLOAD_PATH = "prototype_uploads"
 
 _ZIP_MIME_TYPES = ["application/zip", "application/x-zip-compressed"]
+
+# Ten times the guides as first uploaded (a 35 MB zip); CDP uploader rejects
+# anything larger before it reaches the bucket.
+MAX_UPLOAD_BYTES = 350_000_000
 
 
 async def initiate_upload(redirect: str) -> str:
@@ -44,6 +60,7 @@ async def initiate_upload(redirect: str) -> str:
                 "s3Bucket": settings.guidance_s3_bucket,
                 "s3Path": UPLOAD_PATH,
                 "mimeTypes": _ZIP_MIME_TYPES,
+                "maxFileSize": MAX_UPLOAD_BYTES,
                 "callback": f"{settings.callback_base_url}/prototype/guides/uploads/callback",
             },
         )
@@ -71,7 +88,8 @@ async def handle_callback(
 
     Raises:
         InvalidGuidesZipError: If the file is not a zip of prototype guides.
-            Nothing has been purged when this is raised.
+            Nothing has been purged when this is raised, and the zip has
+            been deleted.
     """
     upload = next(
         (
@@ -90,17 +108,63 @@ async def handle_callback(
         )
         return 0
 
-    zip_bytes = await s3_repo.download_upload(upload.s3_bucket, upload.s3_key)
-    files = unpack.unpack(zip_bytes)
+    if upload.s3_bucket != settings.guidance_s3_bucket or not upload.s3_key.startswith(
+        f"{UPLOAD_PATH}/"
+    ):
+        logger.warning(
+            "Ignored a prototype guides callback for s3://%s/%s, outside %s/",
+            upload.s3_bucket,
+            upload.s3_key,
+            UPLOAD_PATH,
+        )
+        return 0
 
-    purged = await s3_repo.purge()
-    await s3_repo.upload_files(files)
+    try:
+        written, purged = await _replace_guides(upload, s3_repo)
+    except unpack.InvalidGuidesZipError:
+        await s3_repo.delete_upload(upload.s3_bucket, upload.s3_key)
+        raise
+
+    await s3_repo.delete_upload(upload.s3_bucket, upload.s3_key)
 
     logger.info(
         "Replaced %d prototype guide objects with %d from %s",
         purged,
-        len(files),
+        written,
         upload.filename,
     )
 
-    return len(files)
+    return written
+
+
+async def _replace_guides(
+    upload: document_schemas.FileUploadDetail,
+    s3_repo: s3_repository.PrototypeGuideS3Repository,
+) -> tuple[int, int]:
+    """Check the uploaded zip in full, then purge and stream its entries in.
+
+    Returns:
+        How many files were written, and how many objects were purged.
+
+    Raises:
+        InvalidGuidesZipError: If the zip cannot be read or fails a check.
+    """
+    try:
+        source = await s3_repo.open_upload(upload.s3_bucket, upload.s3_key)
+    except OSError as exc:
+        msg = f"The upload cannot be read: {exc}"
+        raise unpack.InvalidGuidesZipError(msg) from exc
+
+    with source, await asyncio.to_thread(unpack.GuidesZip, source) as guides:
+        await asyncio.to_thread(guides.verify)
+
+        purged = await s3_repo.purge()
+
+        for entry in guides.entries:
+            stream = await asyncio.to_thread(guides.open, entry)
+            try:
+                await s3_repo.upload_stream(entry.name, stream)
+            finally:
+                stream.close()
+
+    return len(guides.entries), purged
