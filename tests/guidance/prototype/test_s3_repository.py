@@ -1,0 +1,74 @@
+"""Tests for PrototypeGuideS3Repository."""
+
+from unittest.mock import MagicMock
+
+from app.guidance.prototype import s3_repository
+
+_BUCKET = "test-guidance-bucket"
+_DOCUMENT_ID = "2403b062-1ca7-4ef7-9df1-87669c51b281"
+_VERSION_ID = "d37b0ccf-0000-0000-0000-000000000001"
+
+
+def _mock_s3_client(body: bytes) -> MagicMock:
+    client = MagicMock()
+    response_body = MagicMock()
+    response_body.read.return_value = body
+    client.get_object.return_value = {"Body": response_body}
+    return client
+
+
+class TestDownloadManifest:
+    """Test download_manifest."""
+
+    async def test_downloads_manifest_from_expected_key(self) -> None:
+        client = _mock_s3_client(b'{"claims-guide": {}}')
+        repo = s3_repository.PrototypeGuideS3Repository(client, _BUCKET)
+
+        body = await repo.download_manifest()
+
+        assert body == b'{"claims-guide": {}}'
+        client.get_object.assert_called_once_with(
+            Bucket=_BUCKET, Key="prototype_guides/manifest.json"
+        )
+
+
+class TestDownloadContent:
+    """Test download_content."""
+
+    async def test_downloads_content_from_expected_key(self) -> None:
+        client = _mock_s3_client(b"# Title")
+        repo = s3_repository.PrototypeGuideS3Repository(client, _BUCKET)
+
+        body = await repo.download_content(_DOCUMENT_ID, _VERSION_ID)
+
+        assert body == b"# Title"
+        client.get_object.assert_called_once_with(
+            Bucket=_BUCKET,
+            Key=f"prototype_guides/{_DOCUMENT_ID}/{_VERSION_ID}/content.md",
+        )
+
+
+class TestDownloadAsset:
+    """Test download_asset."""
+
+    async def test_downloads_asset_from_expected_key(self) -> None:
+        client = _mock_s3_client(b"\x89PNG")
+        repo = s3_repository.PrototypeGuideS3Repository(client, _BUCKET)
+
+        body = await repo.download_asset(_DOCUMENT_ID, "digest123.png")
+
+        assert body == b"\x89PNG"
+        client.get_object.assert_called_once_with(
+            Bucket=_BUCKET,
+            Key=f"prototype_guides/{_DOCUMENT_ID}/assets/digest123.png",
+        )
+
+    async def test_asset_key_does_not_include_version(self) -> None:
+        client = _mock_s3_client(b"\x89PNG")
+        repo = s3_repository.PrototypeGuideS3Repository(client, _BUCKET)
+
+        await repo.download_asset(_DOCUMENT_ID, "digest123.png")
+
+        called_key = client.get_object.call_args.kwargs["Key"]
+        assert _VERSION_ID not in called_key
+        assert "assets" in called_key
