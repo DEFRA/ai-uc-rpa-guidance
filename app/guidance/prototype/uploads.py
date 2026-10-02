@@ -156,7 +156,13 @@ async def _replace_guides(
         raise unpack.InvalidGuidesZipError(msg) from exc
 
     with source, await asyncio.to_thread(unpack.GuidesZip, source) as guides:
-        await asyncio.to_thread(guides.verify)
+        verified = await asyncio.to_thread(guides.verify)
+        logger.info(
+            "Verified %d files (%d bytes unzipped) in %s",
+            len(guides.entries),
+            verified,
+            upload.filename,
+        )
 
         purged = await s3_repo.purge()
 

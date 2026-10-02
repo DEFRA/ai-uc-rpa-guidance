@@ -75,7 +75,7 @@ class TestGuidesZip:
 
     def test_verifies_a_good_zip(self) -> None:
         with _open(_zip(_guides())) as guides:
-            guides.verify()
+            assert guides.verify() == sum(len(body) for body in _guides().values())
 
     def test_rejects_bytes_that_are_not_a_zip(self) -> None:
         with pytest.raises(unpack.InvalidGuidesZipError, match="not a zip"):

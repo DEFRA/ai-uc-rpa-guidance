@@ -99,19 +99,25 @@ class GuidesZip:
         """Close the zip."""
         self._archive.close()
 
-    def verify(self) -> None:
+    def verify(self) -> int:
         """Read every entry through, checking each one's CRC, keeping nothing.
+
+        Returns:
+            How many unzipped bytes were verified.
 
         Raises:
             InvalidGuidesZipError: If any entry cannot be read.
         """
+        verified = 0
         for entry in self.entries:
             stream = self.open(entry)
             try:
-                while stream.read(_VERIFY_CHUNK_BYTES):
-                    pass
+                while chunk := stream.read(_VERIFY_CHUNK_BYTES):
+                    verified += len(chunk)
             finally:
                 stream.close()
+
+        return verified
 
     def open(self, entry: GuideEntry) -> EntryStream:
         """Stream one entry, decompressing as it is read.
