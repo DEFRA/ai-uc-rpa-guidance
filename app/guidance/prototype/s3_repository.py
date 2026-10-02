@@ -25,6 +25,23 @@ MANIFEST_KEY = f"{PROTOTYPE_PREFIX}/manifest.json"
 _DELETE_BATCH_SIZE = 1000
 
 
+class PurgeIncompleteError(RuntimeError):
+    """Raised when S3 reports that some prototype guide objects were not deleted."""
+
+    def __init__(self, failed: list[str], total: int) -> None:
+        """Record which keys S3 failed to delete.
+
+        Args:
+            failed: The keys S3 reported errors for.
+            total: How many keys the purge tried to delete.
+        """
+        super().__init__(
+            f"{len(failed)} of {total} prototype guide objects could not be deleted"
+        )
+        self.failed = failed
+        self.total = total
+
+
 class PrototypeGuideS3Repository:
     """Repository for prototype guide artefacts stored in S3."""
 
@@ -155,6 +172,10 @@ class PrototypeGuideS3Repository:
 
         Returns:
             The number of objects deleted.
+
+        Raises:
+            PurgeIncompleteError: If S3 reports any object as not deleted.
+                Every batch is still attempted first.
         """
         return await asyncio.to_thread(self._purge)
 
@@ -168,12 +189,27 @@ class PrototypeGuideS3Repository:
             for obj in page.get("Contents", [])
         ]
 
+        # DeleteObjects succeeds as a whole even when it fails to delete some
+        # keys, listing those under Errors instead of raising.
+        failed: list[str] = []
         for start in range(0, len(keys), _DELETE_BATCH_SIZE):
             batch = keys[start : start + _DELETE_BATCH_SIZE]
-            self.s3.delete_objects(
+            response = self.s3.delete_objects(
                 Bucket=self.bucket,
                 Delete={"Objects": [{"Key": key} for key in batch], "Quiet": True},
             )
+            failed.extend(error["Key"] for error in response.get("Errors", []))
+
+        if failed:
+            logger.error(
+                "Purge of s3://%s/%s/ left %d of %d objects, e.g. %s",
+                self.bucket,
+                PROTOTYPE_PREFIX,
+                len(failed),
+                len(keys),
+                failed[:5],
+            )
+            raise PurgeIncompleteError(failed, len(keys))
 
         logger.info(
             "Purged %d prototype guide objects from s3://%s/%s/",

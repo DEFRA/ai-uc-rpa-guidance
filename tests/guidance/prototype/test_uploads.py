@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.guidance.documents import api_schemas as document_schemas
-from app.guidance.prototype import unpack, uploads
+from app.guidance.prototype import s3_repository, unpack, uploads
 
 
 def _zip(entries: dict[str, bytes]) -> bytes:
@@ -186,6 +186,19 @@ class TestHandleCallback:
         with pytest.raises(RuntimeError, match="S3 unavailable"):
             await uploads.handle_callback(callback, repo)
 
+        repo.delete_upload.assert_not_awaited()
+
+    async def test_keeps_the_zip_and_writes_nothing_when_the_purge_is_incomplete(
+        self,
+    ) -> None:
+        repo = _repo(_zip({"manifest.json": b"{}"}))
+        repo.purge.side_effect = s3_repository.PurgeIncompleteError(["k"], 3)
+        callback = _callback()
+
+        with pytest.raises(s3_repository.PurgeIncompleteError):
+            await uploads.handle_callback(callback, repo)
+
+        repo.upload_stream.assert_not_awaited()
         repo.delete_upload.assert_not_awaited()
 
     @pytest.mark.parametrize(

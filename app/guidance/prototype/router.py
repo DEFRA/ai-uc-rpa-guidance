@@ -266,6 +266,9 @@ async def get_asset(
         fastapi.status.HTTP_200_OK: {
             "description": "Every prototype guide object deleted",
         },
+        fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR: {
+            "description": "S3 reported some objects as not deleted",
+        },
     },
 )
 async def purge(
@@ -284,8 +287,18 @@ async def purge(
 
     Returns:
         How many objects were deleted.
+
+    Raises:
+        HTTPException: 500 if S3 reported any object as not deleted.
     """
-    deleted = await s3_repo.purge()
+    try:
+        deleted = await s3_repo.purge()
+    except s3_repository.PurgeIncompleteError as exc:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
     return api_schemas.PurgeResult(deleted=deleted)
 
 

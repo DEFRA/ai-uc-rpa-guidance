@@ -122,6 +122,24 @@ class TestPurge:
         ]
         assert batch_sizes == [1000, 1000, 500]
 
+    async def test_fails_when_s3_reports_keys_it_did_not_delete(self) -> None:
+        keys = [f"prototype_guides/doc/assets/{n}.png" for n in range(1500)]
+        client = _mock_paginated_s3_client([keys[:1000], keys[1000:]])
+        client.delete_objects.side_effect = [
+            {"Errors": [{"Key": keys[3], "Code": "AccessDenied"}]},
+            {"Errors": [{"Key": keys[1200], "Code": "InternalError"}]},
+        ]
+        repo = s3_repository.PrototypeGuideS3Repository(client, _BUCKET)
+
+        with pytest.raises(
+            s3_repository.PurgeIncompleteError, match="2 of 1500"
+        ) as excinfo:
+            await repo.purge()
+
+        assert excinfo.value.failed == [keys[3], keys[1200]]
+        # Every batch is still attempted.
+        assert client.delete_objects.call_count == 2
+
     async def test_deletes_nothing_when_prefix_is_empty(self) -> None:
         client = _mock_paginated_s3_client([[]])
         repo = s3_repository.PrototypeGuideS3Repository(client, _BUCKET)

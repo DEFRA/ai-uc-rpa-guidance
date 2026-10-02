@@ -9,7 +9,7 @@ import pytest
 
 import app.entrypoints.fastapi
 from app.guidance.prototype import dependencies as prototype_dependencies
-from app.guidance.prototype import unpack, uploads
+from app.guidance.prototype import s3_repository, unpack, uploads
 
 _DOCUMENT_ID = "2403b062-1ca7-4ef7-9df1-87669c51b281"
 _V1_ID = "d37b0ccf-0000-0000-0000-000000000001"
@@ -300,6 +300,24 @@ class TestPurgeEndpoint:
         assert response.status_code == 200
         assert response.json() == {"deleted": 12}
         mock_s3_repo.purge.assert_awaited_once()
+
+
+class TestPurgeEndpointFailure:
+    """Test DELETE /prototype/guides when S3 leaves objects behind."""
+
+    def test_returns_500_when_the_purge_is_incomplete(
+        self, client_with_s3: fastapi.testclient.TestClient, mock_s3_repo: AsyncMock
+    ) -> None:
+        mock_s3_repo.purge.side_effect = s3_repository.PurgeIncompleteError(
+            ["prototype_guides/manifest.json"], 12
+        )
+
+        response = client_with_s3.delete("/prototype/guides")
+
+        assert response.status_code == 500
+        assert response.json() == {
+            "detail": "1 of 12 prototype guide objects could not be deleted"
+        }
 
 
 class TestUploadEndpoints:

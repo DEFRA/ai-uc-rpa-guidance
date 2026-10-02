@@ -232,7 +232,10 @@ bucket; anything else is ignored.
 
 `DELETE /prototype/guides` deletes every object under `prototype_guides/`,
 the manifest included, and returns `{"deleted": <count>}`. It cannot be
-undone. Nothing outside the prefix is touched.
+undone. Nothing outside the prefix is touched. If S3 reports any object as
+not deleted, every batch is still attempted and then the purge fails with a
+`500` naming how many were left; an upload whose purge fails writes nothing
+and keeps its zip, so CDP uploader's retry can try again.
 
 ### Syncing by hand
 
