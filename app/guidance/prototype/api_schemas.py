@@ -20,7 +20,7 @@ class PrototypeGuideVersion(pydantic.BaseModel):
 
     version: int
     version_id: str
-    updated_at: datetime
+    created_at: datetime
     sections: int
     images: int
     content_url: str = pydantic.Field(
@@ -40,7 +40,6 @@ class PrototypeGuide(pydantic.BaseModel):
     )
 
     document_id: str
-    updated_at: str
     title: str
     latest_version: int
     versions: list[PrototypeGuideVersion]
