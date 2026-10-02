@@ -85,6 +85,62 @@ class TestManifestEndpoint:
         assert data["claims-guide"]["latestVersion"] == 2
         assert len(data["claims-guide"]["versions"]) == 2
 
+    @pytest.mark.parametrize(
+        ("guide_dates", "version_dates"),
+        [
+            pytest.param(
+                {
+                    "createdAt": "2026-09-28T16:00:00+00:00",
+                    "updatedAt": "2026-09-29T09:00:00+00:00",
+                },
+                {
+                    "createdAt": "2026-09-29T09:00:00+00:00",
+                    "updatedAt": "2026-09-29T09:00:00+00:00",
+                },
+                id="both",
+            ),
+            pytest.param(
+                {"updatedAt": "2026-09-29T09:00:00+00:00"},
+                {"updatedAt": "2026-09-29T09:00:00+00:00"},
+                id="updated-only",
+            ),
+            pytest.param({}, {}, id="neither"),
+        ],
+    )
+    def test_tolerates_missing_dates(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        mock_s3_repo: AsyncMock,
+        guide_dates: dict[str, str],
+        version_dates: dict[str, str],
+    ) -> None:
+        version = {
+            "version": 1,
+            "versionId": _V1_ID,
+            "sections": 1,
+            "images": 0,
+            "contentUrl": f"{_DOCUMENT_ID}/{_V1_ID}/content.md",
+            **version_dates,
+        }
+        manifest = {
+            "claims-guide": {
+                "documentId": _DOCUMENT_ID,
+                "title": "Claims Guide",
+                "latestVersion": 1,
+                "versions": [version],
+                **guide_dates,
+            }
+        }
+        mock_s3_repo.download_manifest.return_value = json.dumps(manifest).encode()
+
+        response = client_with_s3.get("/prototype/guides/manifest")
+
+        assert response.status_code == 200
+        guide = response.json()["claims-guide"]
+        for key in ("createdAt", "updatedAt"):
+            assert (guide[key] is None) == (key not in guide_dates)
+            assert (guide["versions"][0][key] is None) == (key not in version_dates)
+
     def test_returns_404_when_manifest_missing(
         self, client_with_s3: fastapi.testclient.TestClient, mock_s3_repo: AsyncMock
     ) -> None:

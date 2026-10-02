@@ -64,12 +64,15 @@ guide):
   "cs-ma-claim---revenue-option-claim-rule-at-signoff-2026": {
     "documentId": "37bef251-3242-4b70-948a-a1d05a3839d1",
     "title": "CS MA Claim – Revenue Option Claim Rule at Signoff",
+    "createdAt": "2026-09-28T17:05:24.718264+00:00",
+    "updatedAt": "2026-09-28T17:05:24.718264+00:00",
     "latestVersion": 1,
     "versions": [
       {
         "version": 1,
         "versionId": "1529fe97-33c0-43d1-9413-a9edb331cb19",
         "createdAt": "2026-09-28T17:05:24.718264+00:00",
+        "updatedAt": "2026-09-28T17:05:24.718264+00:00",
         "sections": 26,
         "images": 42,
         "contentUrl": "37bef251-3242-4b70-948a-a1d05a3839d1/1529fe97-33c0-43d1-9413-a9edb331cb19/content.md"
@@ -86,6 +89,10 @@ guide):
   onto that prefix to get the real key, e.g.
   `prototype_guides/37bef251-.../1529fe97-.../content.md`. You never need to
   build this yourself though — the API does it for you.
+- `createdAt` and `updatedAt` are optional at both levels, so manifests from
+  older versions of the parser still load. A guide's `createdAt` is when it
+  was first parsed and its `updatedAt` when its latest version was; a
+  version's two are the same, since a version never changes once parsed.
 - To find "the latest version of document X", the API scans every guide
   entry for the one whose `documentId` matches X, then looks up its
   `latestVersion` number in that entry's `versions` list.
