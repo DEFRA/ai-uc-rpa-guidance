@@ -127,3 +127,53 @@ class TestPurge:
 
         assert deleted == 0
         client.delete_objects.assert_not_called()
+
+
+class TestDownloadUpload:
+    """Test download_upload."""
+
+    async def test_downloads_from_the_bucket_and_key_given(self) -> None:
+        client = _mock_s3_client(b"PK")
+        repo = s3_repository.PrototypeGuideS3Repository(client, _BUCKET)
+
+        body = await repo.download_upload("upload-bucket", "prototype_uploads/u/f")
+
+        assert body == b"PK"
+        client.get_object.assert_called_once_with(
+            Bucket="upload-bucket", Key="prototype_uploads/u/f"
+        )
+
+
+class TestUploadFiles:
+    """Test upload_files."""
+
+    async def test_writes_each_file_under_the_prefix_with_its_type(self) -> None:
+        client = MagicMock()
+        repo = s3_repository.PrototypeGuideS3Repository(client, _BUCKET)
+
+        await repo.upload_files(
+            {
+                "manifest.json": b"{}",
+                f"{_DOCUMENT_ID}/{_VERSION_ID}/content.md": b"# Title",
+                f"{_DOCUMENT_ID}/assets/digest.png": b"\x89PNG",
+                f"{_DOCUMENT_ID}/assets/digest.unknownext": b"?",
+            }
+        )
+
+        written = {
+            call.kwargs["Key"]: call.kwargs["ContentType"]
+            for call in client.put_object.call_args_list
+        }
+        assert written == {
+            "prototype_guides/manifest.json": "application/json",
+            f"prototype_guides/{_DOCUMENT_ID}/{_VERSION_ID}/content.md": (
+                "text/markdown; charset=utf-8"
+            ),
+            f"prototype_guides/{_DOCUMENT_ID}/assets/digest.png": "image/png",
+            f"prototype_guides/{_DOCUMENT_ID}/assets/digest.unknownext": (
+                "application/octet-stream"
+            ),
+        }
+        assert {call.kwargs["Bucket"] for call in client.put_object.call_args_list} == {
+            _BUCKET
+        }

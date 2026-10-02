@@ -52,16 +52,25 @@ class TestUnpack:
     def test_rejects_a_zip_without_a_manifest(self) -> None:
         entries = _guides()
         del entries["manifest.json"]
+        zip_bytes = _zip(entries)
 
         with pytest.raises(unpack.InvalidGuidesZipError, match="manifest.json"):
-            unpack.unpack(_zip(entries))
+            unpack.unpack(zip_bytes)
 
     def test_rejects_a_manifest_nested_two_directories_down(self) -> None:
+        zip_bytes = _zip(_guides("a/b/"))
+
         with pytest.raises(unpack.InvalidGuidesZipError, match="manifest.json"):
-            unpack.unpack(_zip(_guides("a/b/")))
+            unpack.unpack(zip_bytes)
+
+    def test_rejects_several_top_level_directories_without_a_manifest(self) -> None:
+        zip_bytes = _zip({"one/manifest.json": b"{}", "two/content.md": b"# G"})
+
+        with pytest.raises(unpack.InvalidGuidesZipError, match="manifest.json"):
+            unpack.unpack(zip_bytes)
 
     def test_rejects_an_entry_that_escapes_the_root(self) -> None:
-        entries = {**_guides(), "../escape.txt": b"x"}
+        zip_bytes = _zip({**_guides(), "../escape.txt": b"x"})
 
         with pytest.raises(unpack.InvalidGuidesZipError, match="outside"):
-            unpack.unpack(_zip(entries))
+            unpack.unpack(zip_bytes)

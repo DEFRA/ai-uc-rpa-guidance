@@ -2,7 +2,7 @@
 
 import io
 import zipfile
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -47,6 +47,49 @@ def _repo(zip_bytes: bytes) -> MagicMock:
     return repo
 
 
+def _mock_uploader(response: MagicMock) -> AsyncMock:
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.__aexit__.return_value = None
+    client.post.return_value = response
+    return client
+
+
+class TestInitiateUpload:
+    """Test initiate_upload."""
+
+    async def test_opens_a_zip_only_session_that_calls_back_here(self) -> None:
+        response = MagicMock()
+        response.json.return_value = {"uploadId": "upload-123"}
+        client = _mock_uploader(response)
+
+        with patch.object(
+            uploads.http_client, "create_async_client", return_value=client
+        ):
+            upload_id = await uploads.initiate_upload("/admin/prototype-guides")
+
+        assert upload_id == "upload-123"
+        body = client.post.call_args.kwargs["json"]
+        assert client.post.call_args.args[0].endswith("/initiate")
+        assert body["redirect"] == "/admin/prototype-guides"
+        assert body["s3Path"] == uploads.UPLOAD_PATH
+        assert body["mimeTypes"] == ["application/zip", "application/x-zip-compressed"]
+        assert body["callback"].endswith("/prototype/guides/uploads/callback")
+
+    async def test_raises_when_the_uploader_fails(self) -> None:
+        response = MagicMock()
+        response.raise_for_status.side_effect = RuntimeError("HTTP 502")
+        client = _mock_uploader(response)
+
+        with (
+            patch.object(
+                uploads.http_client, "create_async_client", return_value=client
+            ),
+            pytest.raises(RuntimeError, match="HTTP 502"),
+        ):
+            await uploads.initiate_upload("/admin/prototype-guides")
+
+
 class TestHandleCallback:
     """Test handle_callback."""
 
@@ -69,9 +112,10 @@ class TestHandleCallback:
 
     async def test_leaves_the_guides_alone_when_the_zip_is_invalid(self) -> None:
         repo = _repo(_zip({"doc/v/content.md": b"# G"}))
+        callback = _callback()
 
         with pytest.raises(unpack.InvalidGuidesZipError):
-            await uploads.handle_callback(_callback(), repo)
+            await uploads.handle_callback(callback, repo)
 
         repo.purge.assert_not_awaited()
         repo.upload_files.assert_not_awaited()
