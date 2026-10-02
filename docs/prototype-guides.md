@@ -1,9 +1,9 @@
 # Prototype guides API
 
 This document explains a small, self-contained feature added to this
-repository: a read-only API that lets a **GOV.UK Prototype Kit** read
-guidance documents that have been parsed elsewhere and copied into S3 by
-hand. If you're building against this API for the first time, this doc has
+repository: an API that lets a **GOV.UK Prototype Kit** read guidance
+documents that have been parsed elsewhere, and lets an admin replace or
+purge them. If you're building against this API for the first time, this doc has
 everything you need — no prior context assumed.
 
 ## Why this exists
@@ -20,16 +20,18 @@ feature is a parallel, much simpler path:
    (`scripts/parse_docx_for_s3.py`, in the separate
    `rpa-ai-guidance-hub-api` repo) against a `.docx` file. It parses the
    document into Markdown + extracted images on disk.
-2. That output directory is copied up to S3 **by hand**, using
-   `aws s3 sync` (see [Syncing new content](#syncing-new-content) below).
+2. That output directory is zipped and uploaded through the PoC frontend's
+   Prototype guidance admin page, or copied up to S3 by hand (see
+   [Loading new content](#loading-new-content) below).
 3. This API (`/prototype/guides/...`) reads whatever is currently in that
    S3 location and serves it back over HTTP, so a prototype can fetch a
    guide's content and images without touching Mongo, the uploader, or any
    of the "real" pipeline.
 
-There is **no writer** in this repository for this data — it is entirely
-produced outside this codebase and only ever read here. Nothing about the
-existing `/guidance/documents/...` endpoints changes; this is additive.
+The content itself is produced outside this codebase. The only writes here
+are unpacking an uploaded zip of it and purging it, both confined to
+`prototype_guides/`. Nothing about the existing `/guidance/documents/...`
+endpoints changes; this is additive.
 
 ## Where the data lives in S3
 
@@ -176,11 +178,41 @@ replace it with
 whatever base URL your prototype uses for this API), then render the
 Markdown as normal.
 
-## Syncing new content
+## Loading new content
 
-This API never writes anything — content only appears after someone runs
-`aws s3 sync` by hand. See the repo's other sync documentation for the exact
-commands, but in short:
+### Uploading a zip
+
+Zip the directory `scripts/parse_docx_for_s3.py` wrote to, and upload it from
+the PoC frontend's Prototype guidance admin page (`/admin/prototype-guides`).
+`manifest.json` must be at the top level of the zip, or inside a single
+top-level directory (which is what zipping the directory itself gives you).
+
+**An upload replaces every guide.** The zip goes through CDP uploader like
+any other upload:
+
+1. `POST /prototype/guides/uploads` with `{"redirect": "<url>"}` opens a CDP
+   uploader session and returns `{"uploadId": "..."}`; the browser posts the
+   zip to CDP uploader against that id. CDP uploader stores it under
+   `prototype_uploads/` in the same bucket.
+2. Once it is scanned, CDP uploader calls
+   `POST /prototype/guides/uploads/callback`. The zip is checked first --
+   that it is a zip, has a manifest where expected, and has no entry that
+   would escape `prototype_guides/` -- and only then is `prototype_guides/`
+   purged and the zip unpacked into it.
+
+A zip that fails the check leaves the current guides untouched. Its callback
+is still answered `204`, because CDP uploader retries a failed callback and
+retrying cannot fix the zip; the rejection is logged.
+
+### Purging
+
+`DELETE /prototype/guides` deletes every object under `prototype_guides/`,
+the manifest included, and returns `{"deleted": <count>}`. It cannot be
+undone. Nothing outside the prefix is touched.
+
+### Syncing by hand
+
+Content can also be copied up directly:
 
 ```bash
 aws s3 sync ./output/ s3://<bucket>/prototype_guides/ [--endpoint-url http://localhost:4566]
@@ -194,8 +226,9 @@ emulator rather than real AWS.
 
 - No Mongo dependency of any kind — the whole thing only ever talks to S3.
 - No relation to the CDP-uploader upload/callback flow used by
-  `/guidance/documents`.
+  `/guidance/documents`: uploads of guides have their own session, path and
+  callback.
 - No manifest writer — `manifest.json` is produced by the external parsing
-  script, not by this service.
+  script and only ever unpacked from a zip here, never edited.
 - Entirely isolated under `app/guidance/prototype/`: it can be deleted
   without touching `app/guidance/documents/` at all.
