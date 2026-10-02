@@ -6,7 +6,8 @@ scripts/parse_docx_for_s3.py (in the rpa-ai-guidance-hub-api repo) and pushed
 with a manual `aws s3 sync` rather than the CDP-uploader pipeline, so there is
 no Mongo-backed document record, no upload/callback flow, and no writer here
 -- only reads of whatever is currently under prototype_guides/ in the same
-guidance S3 bucket. This whole package can be removed without touching
+guidance S3 bucket, a purge that clears that prefix out, and an upload of a
+zip that replaces it (see uploads.py). This whole package can be removed without touching
 app/guidance/documents.
 """
 
@@ -18,7 +19,15 @@ from typing import Annotated
 import botocore.exceptions
 import fastapi
 
-from app.guidance.prototype import api_schemas, dependencies, manifest, s3_repository
+from app.guidance.documents import api_schemas as document_schemas
+from app.guidance.prototype import (
+    api_schemas,
+    dependencies,
+    manifest,
+    s3_repository,
+    unpack,
+    uploads,
+)
 
 _MARKDOWN_MEDIA_TYPE = "text/markdown; charset=utf-8"
 
@@ -248,6 +257,112 @@ async def get_asset(
     ext = Path(asset_id).suffix.lower()
     media_type = _IMAGE_CONTENT_TYPES.get(ext, "application/octet-stream")
     return fastapi.Response(content=data, media_type=media_type)
+
+
+@router.delete(
+    "",
+    status_code=fastapi.status.HTTP_200_OK,
+    responses={
+        fastapi.status.HTTP_200_OK: {
+            "description": "Every prototype guide object deleted",
+        },
+        fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR: {
+            "description": "S3 reported some objects as not deleted",
+        },
+    },
+)
+async def purge(
+    s3_repo: Annotated[
+        s3_repository.PrototypeGuideS3Repository,
+        fastapi.Depends(dependencies.get_s3_repository),
+    ],
+) -> api_schemas.PurgeResult:
+    """Delete every prototype guide, version, asset and the manifest.
+
+    Irreversible: clears the whole prototype_guides/ prefix. Purging an
+    already-empty prefix succeeds and deletes nothing.
+
+    Args:
+        s3_repo: The prototype guide S3 repository, injected via FastAPI DI.
+
+    Returns:
+        How many objects were deleted.
+
+    Raises:
+        HTTPException: 500 if S3 reported any object as not deleted.
+    """
+    try:
+        deleted = await s3_repo.purge()
+    except s3_repository.PurgeIncompleteError as exc:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(exc),
+        ) from exc
+
+    return api_schemas.PurgeResult(deleted=deleted)
+
+
+@router.post(
+    "/uploads",
+    status_code=fastapi.status.HTTP_201_CREATED,
+    responses={
+        fastapi.status.HTTP_502_BAD_GATEWAY: {
+            "description": "CDP uploader is unavailable or returned an error",
+        },
+    },
+)
+async def initiate_upload(
+    payload: api_schemas.UploadRequest,
+) -> api_schemas.UploadResponse:
+    """Open a CDP uploader session for a zip that replaces every prototype guide.
+
+    Args:
+        payload: Where CDP uploader sends the browser once the file is sent.
+
+    Returns:
+        The upload id the browser posts the zip against.
+
+    Raises:
+        HTTPException: 502 if CDP uploader fails.
+    """
+    try:
+        upload_id = await uploads.initiate_upload(payload.redirect)
+    except Exception as exc:
+        logger.exception("Failed to initiate prototype guides upload")
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to initiate upload with CDP uploader service",
+        ) from exc
+
+    return api_schemas.UploadResponse(upload_id=upload_id)
+
+
+@router.post(
+    "/uploads/callback",
+    status_code=fastapi.status.HTTP_204_NO_CONTENT,
+)
+async def handle_upload_callback(
+    payload: document_schemas.CdpUploaderStatusPayload,
+    s3_repo: Annotated[
+        s3_repository.PrototypeGuideS3Repository,
+        fastapi.Depends(dependencies.get_s3_repository),
+    ],
+) -> None:
+    """Replace the prototype guides with the zip CDP uploader delivered.
+
+    A zip that is not one of prototype guides is still acknowledged with a
+    204: CDP uploader retries any callback that fails, and retrying cannot
+    make a bad zip good. It is logged, and the current guides are left as
+    they are.
+
+    Args:
+        payload: CDP uploader's callback.
+        s3_repo: The prototype guide S3 repository, injected via FastAPI DI.
+    """
+    try:
+        await uploads.handle_callback(payload, s3_repo)
+    except unpack.InvalidGuidesZipError as exc:
+        logger.warning("Rejected prototype guides upload: %s", exc)
 
 
 async def _resolve_latest_version_id(

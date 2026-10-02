@@ -1,9 +1,9 @@
 # Prototype guides API
 
 This document explains a small, self-contained feature added to this
-repository: a read-only API that lets a **GOV.UK Prototype Kit** read
-guidance documents that have been parsed elsewhere and copied into S3 by
-hand. If you're building against this API for the first time, this doc has
+repository: an API that lets a **GOV.UK Prototype Kit** read guidance
+documents that have been parsed elsewhere, and lets an admin replace or
+purge them. If you're building against this API for the first time, this doc has
 everything you need — no prior context assumed.
 
 ## Why this exists
@@ -20,16 +20,18 @@ feature is a parallel, much simpler path:
    (`scripts/parse_docx_for_s3.py`, in the separate
    `rpa-ai-guidance-hub-api` repo) against a `.docx` file. It parses the
    document into Markdown + extracted images on disk.
-2. That output directory is copied up to S3 **by hand**, using
-   `aws s3 sync` (see [Syncing new content](#syncing-new-content) below).
+2. That output directory is zipped and uploaded through the PoC frontend's
+   Prototype guidance admin page, or copied up to S3 by hand (see
+   [Loading new content](#loading-new-content) below).
 3. This API (`/prototype/guides/...`) reads whatever is currently in that
    S3 location and serves it back over HTTP, so a prototype can fetch a
    guide's content and images without touching Mongo, the uploader, or any
    of the "real" pipeline.
 
-There is **no writer** in this repository for this data — it is entirely
-produced outside this codebase and only ever read here. Nothing about the
-existing `/guidance/documents/...` endpoints changes; this is additive.
+The content itself is produced outside this codebase. The only writes here
+are unpacking an uploaded zip of it and purging it, both confined to
+`prototype_guides/`. Nothing about the existing `/guidance/documents/...`
+endpoints changes; this is additive.
 
 ## Where the data lives in S3
 
@@ -62,12 +64,15 @@ guide):
   "cs-ma-claim---revenue-option-claim-rule-at-signoff-2026": {
     "documentId": "37bef251-3242-4b70-948a-a1d05a3839d1",
     "title": "CS MA Claim – Revenue Option Claim Rule at Signoff",
+    "createdAt": "2026-09-28T17:05:24.718264+00:00",
+    "updatedAt": "2026-09-28T17:05:24.718264+00:00",
     "latestVersion": 1,
     "versions": [
       {
         "version": 1,
         "versionId": "1529fe97-33c0-43d1-9413-a9edb331cb19",
         "createdAt": "2026-09-28T17:05:24.718264+00:00",
+        "updatedAt": "2026-09-28T17:05:24.718264+00:00",
         "sections": 26,
         "images": 42,
         "contentUrl": "37bef251-3242-4b70-948a-a1d05a3839d1/1529fe97-33c0-43d1-9413-a9edb331cb19/content.md"
@@ -84,6 +89,10 @@ guide):
   onto that prefix to get the real key, e.g.
   `prototype_guides/37bef251-.../1529fe97-.../content.md`. You never need to
   build this yourself though — the API does it for you.
+- `createdAt` and `updatedAt` are optional at both levels, so manifests from
+  older versions of the parser still load. A guide's `createdAt` is when it
+  was first parsed and its `updatedAt` when its latest version was; a
+  version's two are the same, since a version never changes once parsed.
 - To find "the latest version of document X", the API scans every guide
   entry for the one whose `documentId` matches X, then looks up its
   `latestVersion` number in that entry's `versions` list.
@@ -176,11 +185,61 @@ replace it with
 whatever base URL your prototype uses for this API), then render the
 Markdown as normal.
 
-## Syncing new content
+## Loading new content
 
-This API never writes anything — content only appears after someone runs
-`aws s3 sync` by hand. See the repo's other sync documentation for the exact
-commands, but in short:
+### Uploading a zip
+
+Zip the directory `scripts/parse_docx_for_s3.py` wrote to, and upload it from
+the PoC frontend's Prototype guidance admin page (`/admin/prototype-guides`).
+`manifest.json` must be at the top level of the zip, or inside a single
+top-level directory (which is what zipping the directory itself gives you).
+
+**An upload replaces every guide.** The zip goes through CDP uploader like
+any other upload:
+
+1. `POST /prototype/guides/uploads` with `{"redirect": "<url>"}` opens a CDP
+   uploader session and returns `{"uploadId": "..."}`; the browser posts the
+   zip to CDP uploader against that id. CDP uploader stores it under
+   `prototype_uploads/` in the same bucket.
+2. Once it is scanned, CDP uploader calls
+   `POST /prototype/guides/uploads/callback`. The zip is read where it lies,
+   by byte range from S3, and one entry at a time, so neither it nor its
+   contents are ever held in memory. It is checked in full first: its index
+   (a manifest where expected, no entry that would escape
+   `prototype_guides/`, at most 5,000 files and 400 MB unzipped), then every
+   entry read through to check its CRC. Only then is `prototype_guides/`
+   purged and each entry streamed into it.
+
+Uploads are limited to 350 MB; CDP uploader rejects anything larger before
+it reaches the bucket. The limits are about ten times the guides as first
+uploaded (a 35 MB zip of 443 files). Any problem reading the zip, from the
+zip or from S3, is treated as the zip being corrupt.
+
+A zip that fails the check -- not a zip, corrupt, no manifest where
+expected, or an entry that would escape `prototype_guides/` -- leaves the
+current guides untouched. Its callback is still answered `204`, because CDP
+uploader retries a failed callback and retrying cannot fix the zip; the
+rejection is logged.
+
+The zip itself is deleted from `prototype_uploads/` once it has been dealt
+with: after a successful unpack, or when it fails the check. Any other failure
+(S3 erroring part-way, say) keeps it, so the uploader's retry can try again.
+Because the callback is unauthenticated and names its own bucket and key, it
+only ever reads or deletes a file under `prototype_uploads/` in the guidance
+bucket; anything else is ignored.
+
+### Purging
+
+`DELETE /prototype/guides` deletes every object under `prototype_guides/`,
+the manifest included, and returns `{"deleted": <count>}`. It cannot be
+undone. Nothing outside the prefix is touched. If S3 reports any object as
+not deleted, every batch is still attempted and then the purge fails with a
+`500` naming how many were left; an upload whose purge fails writes nothing
+and keeps its zip, so CDP uploader's retry can try again.
+
+### Syncing by hand
+
+Content can also be copied up directly:
 
 ```bash
 aws s3 sync ./output/ s3://<bucket>/prototype_guides/ [--endpoint-url http://localhost:4566]
@@ -194,8 +253,9 @@ emulator rather than real AWS.
 
 - No Mongo dependency of any kind — the whole thing only ever talks to S3.
 - No relation to the CDP-uploader upload/callback flow used by
-  `/guidance/documents`.
+  `/guidance/documents`: uploads of guides have their own session, path and
+  callback.
 - No manifest writer — `manifest.json` is produced by the external parsing
-  script, not by this service.
+  script and only ever unpacked from a zip here, never edited.
 - Entirely isolated under `app/guidance/prototype/`: it can be deleted
   without touching `app/guidance/documents/` at all.

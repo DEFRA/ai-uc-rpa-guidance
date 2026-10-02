@@ -3,6 +3,10 @@
 manifest.json is already produced with camelCase keys by
 scripts/parse_docx_for_s3.py, so these models round-trip it without renaming
 anything on either side.
+
+The createdAt/updatedAt timestamps are optional at both levels: manifests
+written by earlier versions of the parser have one, the other or neither, and
+a missing date is no reason to refuse a guide.
 """
 
 from datetime import datetime
@@ -20,7 +24,8 @@ class PrototypeGuideVersion(pydantic.BaseModel):
 
     version: int
     version_id: str
-    created_at: datetime
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
     sections: int
     images: int
     content_url: str = pydantic.Field(
@@ -41,5 +46,29 @@ class PrototypeGuide(pydantic.BaseModel):
 
     document_id: str
     title: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
     latest_version: int
     versions: list[PrototypeGuideVersion]
+
+
+class PurgeResult(pydantic.BaseModel):
+    """What a purge of prototype_guides/ removed."""
+
+    deleted: int
+
+
+class UploadRequest(pydantic.BaseModel):
+    """Request to open an upload session for a zip of prototype guides."""
+
+    redirect: str
+
+
+class UploadResponse(pydantic.BaseModel):
+    """The CDP uploader session the browser posts the zip to."""
+
+    model_config = pydantic.ConfigDict(
+        populate_by_name=True, alias_generator=pydantic.alias_generators.to_camel
+    )
+
+    upload_id: str
