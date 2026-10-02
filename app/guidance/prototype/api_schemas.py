@@ -43,3 +43,25 @@ class PrototypeGuide(pydantic.BaseModel):
     title: str
     latest_version: int
     versions: list[PrototypeGuideVersion]
+
+
+class PurgeResult(pydantic.BaseModel):
+    """What a purge of prototype_guides/ removed."""
+
+    deleted: int
+
+
+class UploadRequest(pydantic.BaseModel):
+    """Request to open an upload session for a zip of prototype guides."""
+
+    redirect: str
+
+
+class UploadResponse(pydantic.BaseModel):
+    """The CDP uploader session the browser posts the zip to."""
+
+    model_config = pydantic.ConfigDict(
+        populate_by_name=True, alias_generator=pydantic.alias_generators.to_camel
+    )
+
+    upload_id: str

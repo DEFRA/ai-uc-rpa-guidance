@@ -9,6 +9,7 @@ import pytest
 
 import app.entrypoints.fastapi
 from app.guidance.prototype import dependencies as prototype_dependencies
+from app.guidance.prototype import unpack, uploads
 
 _DOCUMENT_ID = "2403b062-1ca7-4ef7-9df1-87669c51b281"
 _V1_ID = "d37b0ccf-0000-0000-0000-000000000001"
@@ -228,3 +229,70 @@ class TestAssetEndpoint:
 
         assert response.status_code == 404
         assert response.json()["detail"] == "Asset not found"
+
+
+class TestPurgeEndpoint:
+    """Test DELETE /prototype/guides."""
+
+    def test_purges_and_reports_count(
+        self, client_with_s3: fastapi.testclient.TestClient, mock_s3_repo: AsyncMock
+    ) -> None:
+        mock_s3_repo.purge.return_value = 12
+
+        response = client_with_s3.delete("/prototype/guides")
+
+        assert response.status_code == 200
+        assert response.json() == {"deleted": 12}
+        mock_s3_repo.purge.assert_awaited_once()
+
+
+class TestUploadEndpoints:
+    """Test the zip upload endpoints."""
+
+    def test_initiate_returns_upload_id(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        initiate = AsyncMock(return_value="upload-123")
+        monkeypatch.setattr(uploads, "initiate_upload", initiate)
+
+        response = client_with_s3.post(
+            "/prototype/guides/uploads", json={"redirect": "/admin/prototype-guides"}
+        )
+
+        assert response.status_code == 201
+        assert response.json() == {"uploadId": "upload-123"}
+        initiate.assert_awaited_once_with("/admin/prototype-guides")
+
+    def test_initiate_returns_502_when_uploader_fails(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            uploads, "initiate_upload", AsyncMock(side_effect=RuntimeError("down"))
+        )
+
+        response = client_with_s3.post(
+            "/prototype/guides/uploads", json={"redirect": "/admin/prototype-guides"}
+        )
+
+        assert response.status_code == 502
+
+    def test_callback_acknowledges_an_invalid_zip_so_it_is_not_retried(
+        self,
+        client_with_s3: fastapi.testclient.TestClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setattr(
+            uploads,
+            "handle_callback",
+            AsyncMock(side_effect=unpack.InvalidGuidesZipError("no manifest")),
+        )
+
+        response = client_with_s3.post(
+            "/prototype/guides/uploads/callback", json={"uploadStatus": "ready"}
+        )
+
+        assert response.status_code == 204

@@ -72,3 +72,58 @@ class TestDownloadAsset:
         called_key = client.get_object.call_args.kwargs["Key"]
         assert _VERSION_ID not in called_key
         assert "assets" in called_key
+
+
+def _mock_paginated_s3_client(pages: list[list[str]]) -> MagicMock:
+    client = MagicMock()
+    client.get_paginator.return_value.paginate.return_value = [
+        {"Contents": [{"Key": key} for key in keys]} if keys else {} for keys in pages
+    ]
+    return client
+
+
+class TestPurge:
+    """Test purge."""
+
+    async def test_deletes_every_object_under_the_prefix(self) -> None:
+        keys = [
+            "prototype_guides/manifest.json",
+            f"prototype_guides/{_DOCUMENT_ID}/{_VERSION_ID}/content.md",
+            f"prototype_guides/{_DOCUMENT_ID}/assets/digest123.png",
+        ]
+        client = _mock_paginated_s3_client([keys])
+        repo = s3_repository.PrototypeGuideS3Repository(client, _BUCKET)
+
+        deleted = await repo.purge()
+
+        assert deleted == 3
+        client.get_paginator.return_value.paginate.assert_called_once_with(
+            Bucket=_BUCKET, Prefix="prototype_guides/"
+        )
+        client.delete_objects.assert_called_once_with(
+            Bucket=_BUCKET,
+            Delete={"Objects": [{"Key": key} for key in keys], "Quiet": True},
+        )
+
+    async def test_deletes_in_batches_of_at_most_1000(self) -> None:
+        keys = [f"prototype_guides/doc/assets/{n}.png" for n in range(2500)]
+        client = _mock_paginated_s3_client([keys[:1000], keys[1000:2000], keys[2000:]])
+        repo = s3_repository.PrototypeGuideS3Repository(client, _BUCKET)
+
+        deleted = await repo.purge()
+
+        assert deleted == 2500
+        batch_sizes = [
+            len(call.kwargs["Delete"]["Objects"])
+            for call in client.delete_objects.call_args_list
+        ]
+        assert batch_sizes == [1000, 1000, 500]
+
+    async def test_deletes_nothing_when_prefix_is_empty(self) -> None:
+        client = _mock_paginated_s3_client([[]])
+        repo = s3_repository.PrototypeGuideS3Repository(client, _BUCKET)
+
+        deleted = await repo.purge()
+
+        assert deleted == 0
+        client.delete_objects.assert_not_called()
