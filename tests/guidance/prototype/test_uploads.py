@@ -1,6 +1,7 @@
 """Tests for replacing prototype guides from a CDP uploader callback."""
 
 import io
+import json
 import zipfile
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -20,6 +21,7 @@ def _zip(entries: dict[str, bytes]) -> bytes:
 
 
 _BUCKET = uploads.settings.guidance_s3_bucket
+_GUIDE = "doc/v/content.md"
 _KEY = "prototype_uploads/upload-1/file-1"
 
 
@@ -114,7 +116,7 @@ class TestHandleCallback:
     async def test_verifies_purges_streams_the_guides_then_deletes_the_zip(
         self,
     ) -> None:
-        repo = _repo(_zip({"manifest.json": b"{}", "doc/v/content.md": b"# G"}))
+        repo = _repo(_zip({_GUIDE: b"# G", "doc/assets/a.png": b"\x89PNG"}))
         calls = MagicMock()
         calls.attach_mock(repo.purge, "purge")
         calls.attach_mock(repo.upload_stream, "upload_stream")
@@ -124,20 +126,54 @@ class TestHandleCallback:
 
         assert written == 2
         repo.open_upload.assert_awaited_once_with(_BUCKET, _KEY)
-        assert [name for name, *_ in calls.mock_calls] == [
-            "purge",
-            "upload_stream",
-            "upload_stream",
-            "delete_upload",
+        steps = [
+            (step, args[0] if step == "upload_stream" else None)
+            for step, args, _ in calls.mock_calls
         ]
-        assert repo.written == {"manifest.json": b"{}", "doc/v/content.md": b"# G"}
+        assert steps == [
+            ("purge", None),
+            ("upload_stream", _GUIDE),
+            ("upload_stream", "doc/assets/a.png"),
+            ("upload_stream", "manifest.json"),
+            ("delete_upload", None),
+        ]
+        assert repo.written[_GUIDE] == b"# G"
         repo.delete_upload.assert_awaited_once_with(_BUCKET, _KEY)
 
+    async def test_writes_a_manifest_built_from_the_zip(self) -> None:
+        repo = _repo(
+            _zip({_GUIDE: b"# Claims Guide\n\n## 1 Scope\n", "manifest.json": b"{}"})
+        )
+
+        await uploads.handle_callback(_callback(), repo)
+
+        built = json.loads(repo.written["manifest.json"])
+        assert list(built) == ["claims-guide"]
+        guide = built["claims-guide"]
+        assert guide["documentId"] == "doc"
+        assert guide["latestVersion"] == 1
+        assert guide["versions"][0]["versionId"] == "v"
+        assert guide["versions"][0]["contentUrl"] == _GUIDE
+        assert guide["versions"][0]["sections"] == 1
+
+    async def test_an_empty_zip_purges_the_guides_and_writes_no_manifest(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        repo = _repo(_zip({}))
+
+        written = await uploads.handle_callback(_callback(), repo)
+
+        assert written == 0
+        repo.purge.assert_awaited_once()
+        repo.upload_stream.assert_not_awaited()
+        repo.delete_upload.assert_awaited_once_with(_BUCKET, _KEY)
+        assert "holds no guides" in caplog.text
+
     async def test_leaves_the_guides_alone_and_deletes_an_invalid_zip(self) -> None:
-        repo = _repo(_zip({"doc/v/content.md": b"# G"}))
+        repo = _repo(_zip({"notes.txt": b"x"}))
         callback = _callback()
 
-        with pytest.raises(unpack.InvalidGuidesZipError, match="manifest"):
+        with pytest.raises(unpack.InvalidGuidesZipError, match="no guides"):
             await uploads.handle_callback(callback, repo)
 
         repo.purge.assert_not_awaited()
@@ -155,8 +191,8 @@ class TestHandleCallback:
         repo.delete_upload.assert_awaited_once_with(_BUCKET, _KEY)
 
     async def test_finds_a_corrupt_entry_before_purging(self) -> None:
-        zip_bytes = bytearray(_zip({"manifest.json": b"{" + b"x" * 200 + b"}"}))
-        offset = zip_bytes.index(b"manifest.json") + len(b"manifest.json") + 2
+        zip_bytes = bytearray(_zip({_GUIDE: b"# " + b"x" * 200}))
+        offset = zip_bytes.index(_GUIDE.encode()) + len(_GUIDE) + 2
         zip_bytes[offset] ^= 0xFF
         repo = _repo(bytes(zip_bytes))
         callback = _callback()
@@ -179,7 +215,7 @@ class TestHandleCallback:
         repo.delete_upload.assert_awaited_once_with(_BUCKET, _KEY)
 
     async def test_keeps_the_zip_when_replacing_the_guides_fails(self) -> None:
-        repo = _repo(_zip({"manifest.json": b"{}"}))
+        repo = _repo(_zip({_GUIDE: b"# G"}))
         repo.purge.side_effect = RuntimeError("S3 unavailable")
         callback = _callback()
 
@@ -191,7 +227,7 @@ class TestHandleCallback:
     async def test_keeps_the_zip_and_writes_nothing_when_the_purge_is_incomplete(
         self,
     ) -> None:
-        repo = _repo(_zip({"manifest.json": b"{}"}))
+        repo = _repo(_zip({_GUIDE: b"# G"}))
         repo.purge.side_effect = s3_repository.PurgeIncompleteError(["k"], 3)
         callback = _callback()
 
@@ -212,7 +248,7 @@ class TestHandleCallback:
     async def test_ignores_a_file_outside_the_upload_prefix(
         self, bucket: str, key: str
     ) -> None:
-        repo = _repo(_zip({"manifest.json": b"{}"}))
+        repo = _repo(_zip({_GUIDE: b"# G"}))
 
         written = await uploads.handle_callback(_callback(bucket=bucket, key=key), repo)
 

@@ -1,13 +1,12 @@
-"""FastAPI router for reading prototype guides synced by hand into S3.
+"""FastAPI router for reading prototype guides unpacked from an uploaded zip.
 
-This is a deliberately parallel, read-only surface to app/guidance/documents:
-prototype guides are produced outside this service by
-scripts/parse_docx_for_s3.py (in the rpa-ai-guidance-hub-api repo) and pushed
-with a manual `aws s3 sync` rather than the CDP-uploader pipeline, so there is
-no Mongo-backed document record, no upload/callback flow, and no writer here
--- only reads of whatever is currently under prototype_guides/ in the same
-guidance S3 bucket, a purge that clears that prefix out, and an upload of a
-zip that replaces it (see uploads.py). This whole package can be removed without touching
+This is a deliberately parallel surface to app/guidance/documents: prototype
+guides are parsed outside this service by scripts/parse_docx.py (in the
+rpa-ai-guidance-hub-api repo) and zipped up, rather than going through the
+guidance pipeline, so there is no Mongo-backed document record -- only reads
+of whatever is currently under prototype_guides/ in the same guidance S3
+bucket, a purge that clears that prefix out, and an upload of a zip that
+replaces it and builds its manifest (see uploads.py). This whole package can be removed without touching
 app/guidance/documents.
 """
 
@@ -71,9 +70,8 @@ async def get_manifest(
     """Return the prototype guides manifest.
 
     Reads and parses prototype_guides/manifest.json, which maps each guide's
-    human name to its document id and ordered version history. This is
-    produced by scripts/parse_docx_for_s3.py and synced up by hand; this
-    endpoint only ever reads it.
+    title slug to its document id and ordered version history. It is built
+    when a zip is unpacked (see uploads.py); this endpoint only ever reads it.
 
     Args:
         s3_repo: The prototype guide S3 repository, injected via FastAPI DI.
@@ -82,7 +80,8 @@ async def get_manifest(
         A dict mapping guide name to its manifest entry.
 
     Raises:
-        HTTPException: 404 if the manifest has not been synced yet.
+        HTTPException: 404 if there is no manifest: nothing has been
+            uploaded, or the guides were purged or replaced by an empty zip.
     """
     try:
         raw = await s3_repo.download_manifest()

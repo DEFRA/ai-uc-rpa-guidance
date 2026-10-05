@@ -1,11 +1,11 @@
-"""S3 access for prototype guide artefacts synced by hand into S3.
+"""S3 access for prototype guide artefacts unpacked from an uploaded zip.
 
 Unlike app/guidance/documents, which is written via the CDP-uploader pipeline
-and read/written through GuidanceS3Repository, this data is produced entirely
-outside this service (by scripts/parse_docx_for_s3.py in the
-rpa-ai-guidance-hub-api repo) and pushed with a manual `aws s3 sync`. This
-repository writes guides only by streaming them out of an uploaded zip, and can
-purge the whole prefix. It lives under its own key prefix
+and read/written through GuidanceS3Repository, the guides are parsed entirely
+outside this service (by scripts/parse_docx.py in the rpa-ai-guidance-hub-api
+repo) and zipped up. This repository writes guides only by streaming them out
+of an uploaded zip, followed by the manifest built from it, and can purge the
+whole prefix. It lives under its own key prefix
 (prototype_guides/) so it can never collide with parsed_guidance/.
 """
 

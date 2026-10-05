@@ -2,6 +2,7 @@
 
 import io
 import zipfile
+from datetime import UTC, datetime
 
 import pytest
 
@@ -21,7 +22,6 @@ def _zip(entries: dict[str, bytes]) -> bytes:
 
 def _guides(prefix: str = "") -> dict[str, bytes]:
     return {
-        f"{prefix}manifest.json": b"{}",
         f"{prefix}{_DOC}/{_VERSION}/content.md": b"# Guide",
         f"{prefix}{_DOC}/assets/digest.png": b"\x89PNG",
     }
@@ -81,25 +81,73 @@ class TestGuidesZip:
         with pytest.raises(unpack.InvalidGuidesZipError, match="not a zip"):
             _open(b"not a zip")
 
-    def test_rejects_a_zip_without_a_manifest(self) -> None:
-        entries = _guides()
-        del entries["manifest.json"]
-        zip_bytes = _zip(entries)
+    def test_ignores_a_manifest_beside_the_guides(self) -> None:
+        for prefix in ("", "parsed-guides/"):
+            entries = {**_guides(prefix), f"{prefix}manifest.json": b"{}"}
 
-        with pytest.raises(unpack.InvalidGuidesZipError, match="manifest.json"):
+            with _open(_zip(entries)) as guides:
+                assert _contents(guides) == _guides()
+
+    def test_accepts_a_zip_with_no_files_as_holding_no_guides(self) -> None:
+        with _open(_zip({})) as guides:
+            assert guides.entries == []
+            assert guides.versions == []
+            assert guides.verify() == 0
+
+    def test_accepts_a_zip_holding_only_archiver_clutter_as_empty(self) -> None:
+        with _open(_zip({"__MACOSX/._x": b"junk", ".DS_Store": b"junk"})) as guides:
+            assert guides.entries == []
+
+    def test_rejects_files_that_are_not_guides(self) -> None:
+        zip_bytes = _zip({"notes.txt": b"x", "manifest.json": b"{}"})
+
+        with pytest.raises(unpack.InvalidGuidesZipError, match="no guides"):
             _open(zip_bytes)
 
-    def test_rejects_a_manifest_nested_two_directories_down(self) -> None:
+    def test_rejects_guides_nested_two_directories_down(self) -> None:
         zip_bytes = _zip(_guides("a/b/"))
 
-        with pytest.raises(unpack.InvalidGuidesZipError, match="manifest.json"):
+        with pytest.raises(unpack.InvalidGuidesZipError, match="no guides"):
             _open(zip_bytes)
 
-    def test_rejects_several_top_level_directories_without_a_manifest(self) -> None:
-        zip_bytes = _zip({"one/manifest.json": b"{}", "two/content.md": b"# G"})
+    def test_rejects_guides_split_across_top_level_directories(self) -> None:
+        zip_bytes = _zip({"one/d/v/notes.md": b"# G", "two/d/v/content.md": b"# G"})
 
-        with pytest.raises(unpack.InvalidGuidesZipError, match="manifest.json"):
+        with pytest.raises(unpack.InvalidGuidesZipError, match="no guides"):
             _open(zip_bytes)
+
+    def test_lists_every_version_with_when_it_was_written(self) -> None:
+        other = "0b2f6c8e-2f4b-4bb8-9c43-2d3c1b6c0f11"
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for version, when in (
+                (_VERSION, (2026, 10, 5, 13, 0, 28)),
+                (other, (2026, 10, 6, 9, 30, 0)),
+            ):
+                info = zipfile.ZipInfo(f"guides/{_DOC}/{version}/content.md", when)
+                archive.writestr(info, b"# Guide")
+            archive.writestr(f"guides/{_DOC}/assets/digest.png", b"\x89PNG")
+
+        with _open(buffer.getvalue()) as guides:
+            found = {
+                (v.document_id, v.version_id, v.modified, v.entry.name)
+                for v in guides.versions
+            }
+
+        assert found == {
+            (
+                _DOC,
+                _VERSION,
+                datetime(2026, 10, 5, 13, 0, 28, tzinfo=UTC),
+                f"{_DOC}/{_VERSION}/content.md",
+            ),
+            (
+                _DOC,
+                other,
+                datetime(2026, 10, 6, 9, 30, 0, tzinfo=UTC),
+                f"{_DOC}/{other}/content.md",
+            ),
+        }
 
     def test_rejects_an_entry_that_escapes_the_root(self) -> None:
         zip_bytes = _zip({**_guides(), "../escape.txt": b"x"})
@@ -108,10 +156,10 @@ class TestGuidesZip:
             _open(zip_bytes)
 
     def test_rejects_too_many_files(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(unpack, "MAX_ENTRIES", 2)
+        monkeypatch.setattr(unpack, "MAX_ENTRIES", 1)
         zip_bytes = _zip(_guides())
 
-        with pytest.raises(unpack.InvalidGuidesZipError, match="more than the 2"):
+        with pytest.raises(unpack.InvalidGuidesZipError, match="more than the 1"):
             _open(zip_bytes)
 
     def test_rejects_a_zip_that_unpacks_too_large(
@@ -125,9 +173,10 @@ class TestGuidesZip:
             _open(zip_bytes)
 
     def test_verify_rejects_a_corrupt_entry(self) -> None:
-        zip_bytes = bytearray(_zip({"manifest.json": b"{" + b"x" * 200 + b"}"}))
+        name = f"{_DOC}/{_VERSION}/content.md".encode()
+        zip_bytes = bytearray(_zip({name.decode(): b"# " + b"x" * 200}))
         # Damage the entry's compressed data; its index is left intact.
-        offset = zip_bytes.index(b"manifest.json") + len(b"manifest.json") + 2
+        offset = zip_bytes.index(name) + len(name) + 2
         zip_bytes[offset] ^= 0xFF
         guides = _open(bytes(zip_bytes))
 

@@ -17,12 +17,14 @@ That pipeline is too heavyweight for prototyping. The **prototype guides**
 feature is a parallel, much simpler path:
 
 1. Someone runs a script locally
-   (`scripts/parse_docx_for_s3.py`, in the separate
-   `rpa-ai-guidance-hub-api` repo) against a `.docx` file. It parses the
+   (`scripts/parse_docx.py`, in the separate
+   `rpa-ai-guidance-hub-api` repo, or `uv run task convert` in the
+   `rpa-ai-guidance-hub-dev` workspace) against a `.docx` file. It parses the
    document into Markdown + extracted images on disk.
 2. That output directory is zipped and uploaded through the PoC frontend's
-   Prototype guidance admin page, or copied up to S3 by hand (see
-   [Loading new content](#loading-new-content) below).
+   Prototype guidance admin page (see
+   [Loading new content](#loading-new-content) below). This API builds the
+   manifest from what the zip holds.
 3. This API (`/prototype/guides/...`) reads whatever is currently in that
    S3 location and serves it back over HTTP, so a prototype can fetch a
    guide's content and images without touching Mongo, the uploader, or any
@@ -56,12 +58,13 @@ s3://<bucket>/prototype_guides/<document_id>/assets/<asset_id>
 ### `manifest.json`
 
 This is the index: it maps a guide's human-readable name to its document id
-and the ordered list of its versions. Example (real data from a synced
-guide):
+and the ordered list of its versions. **This API builds it when a zip is
+unpacked**; the parser no longer writes one, and any `manifest.json` in a zip
+is ignored. Example:
 
 ```json
 {
-  "cs-ma-claim---revenue-option-claim-rule-at-signoff-2026": {
+  "cs-ma-claim-revenue-option-claim-rule-at-signoff": {
     "documentId": "37bef251-3242-4b70-948a-a1d05a3839d1",
     "title": "CS MA Claim – Revenue Option Claim Rule at Signoff",
     "createdAt": "2026-09-28T17:05:24.718264+00:00",
@@ -82,17 +85,27 @@ guide):
 }
 ```
 
-- The outer key (`cs-ma-claim---revenue-option-claim-rule-at-signoff-2026`)
-  is just a human-friendly slug — you generally don't need it, because the
-  API is addressed by `documentId`.
+- The outer key (`cs-ma-claim-revenue-option-claim-rule-at-signoff`) is a
+  slug of the title — lowercase letters and digits, hyphenated, with `-2`,
+  `-3`… added if two titles clash, or the `documentId` if there is no title.
+  You generally don't need it, because the API is addressed by `documentId`.
+- `title` is the latest version's first line (`# <title>`). `sections` counts
+  its headings below the title, and `images` its image references.
+- A guide's versions are ordered by when each `content.md` was written, as
+  the zip records it, oldest first and numbered from 1; the newest is
+  `latestVersion`. Versions written at the same moment (zip times are only
+  to two seconds, and copying files can reset them) are ordered by
+  `versionId` and logged, since which is latest is then a guess.
 - `contentUrl` is the S3 key **relative to `prototype_guides/`**. Join it
   onto that prefix to get the real key, e.g.
   `prototype_guides/37bef251-.../1529fe97-.../content.md`. You never need to
   build this yourself though — the API does it for you.
-- `createdAt` and `updatedAt` are optional at both levels, so manifests from
-  older versions of the parser still load. A guide's `createdAt` is when it
-  was first parsed and its `updatedAt` when its latest version was; a
-  version's two are the same, since a version never changes once parsed.
+- `createdAt` and `updatedAt` come from the same zip times, read as UTC (a
+  zip records no time zone, so they may be an hour out in summer). A guide's
+  `createdAt` is its first version's and its `updatedAt` its latest's; a
+  version's two are the same, since a version never changes once parsed. Both
+  are optional in the schema, as manifests from older versions of the parser
+  lacked them.
 - To find "the latest version of document X", the API scans every guide
   entry for the one whose `documentId` matches X, then looks up its
   `latestVersion` number in that entry's `versions` list.
@@ -189,10 +202,12 @@ Markdown as normal.
 
 ### Uploading a zip
 
-Zip the directory `scripts/parse_docx_for_s3.py` wrote to, and upload it from
+Zip the directory `scripts/parse_docx.py` wrote to, and upload it from
 the PoC frontend's Prototype guidance admin page (`/admin/prototype-guides`).
-`manifest.json` must be at the top level of the zip, or inside a single
-top-level directory (which is what zipping the directory itself gives you).
+The guides (`<document_id>/<version_id>/content.md`, with `assets/`) must be at
+the top level of the zip, or inside a single top-level directory (which is
+what zipping the directory itself gives you). **A zip with no files at all is
+accepted**: it purges every guide, writes no manifest, and is logged.
 
 **An upload replaces every guide.** The zip goes through CDP uploader like
 any other upload:
@@ -205,17 +220,18 @@ any other upload:
    `POST /prototype/guides/uploads/callback`. The zip is read where it lies,
    by byte range from S3, and one entry at a time, so neither it nor its
    contents are ever held in memory. It is checked in full first: its index
-   (a manifest where expected, no entry that would escape
+   (guides where expected, no entry that would escape
    `prototype_guides/`, at most 5,000 files and 400 MB unzipped), then every
-   entry read through to check its CRC. Only then is `prototype_guides/`
-   purged and each entry streamed into it.
+   entry read through to check its CRC, and the manifest built from each
+   version's `content.md`. Only then is `prototype_guides/` purged, each entry
+   streamed into it, and the manifest written last.
 
 Uploads are limited to 350 MB; CDP uploader rejects anything larger before
 it reaches the bucket. The limits are about ten times the guides as first
 uploaded (a 35 MB zip of 443 files). Any problem reading the zip, from the
 zip or from S3, is treated as the zip being corrupt.
 
-A zip that fails the check -- not a zip, corrupt, no manifest where
+A zip that fails the check -- not a zip, corrupt, files but no guides where
 expected, or an entry that would escape `prototype_guides/` -- leaves the
 current guides untouched. Its callback is still answered `204`, because CDP
 uploader retries a failed callback and retrying cannot fix the zip; the
@@ -239,15 +255,10 @@ and keeps its zip, so CDP uploader's retry can try again.
 
 ### Syncing by hand
 
-Content can also be copied up directly:
-
-```bash
-aws s3 sync ./output/ s3://<bucket>/prototype_guides/ [--endpoint-url http://localhost:4566]
-```
-
-where `./output/` is whatever directory `scripts/parse_docx_for_s3.py`
-produced. `--endpoint-url` is only needed when syncing to the local floci S3
-emulator rather than real AWS.
+Copying the parser's output up directly (`aws s3 sync`) no longer gives a
+working set of guides on its own: the parser writes no manifest, and only an
+upload builds one, so `GET /prototype/guides/manifest` would answer `404`.
+Upload a zip instead.
 
 ## What this feature deliberately does *not* do
 
