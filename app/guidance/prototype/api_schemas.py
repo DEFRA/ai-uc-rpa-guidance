@@ -1,8 +1,8 @@
 """Pydantic response schemas for the prototype guides API.
 
-manifest.json is already produced with camelCase keys by
-scripts/parse_docx_for_s3.py, so these models round-trip it without renaming
-anything on either side.
+manifest.json is built with camelCase keys by manifest.build when a zip is
+unpacked (the parser used to write it in the same shape), so these models
+round-trip it without renaming anything on either side.
 
 The createdAt/updatedAt timestamps are optional at both levels: manifests
 written by earlier versions of the parser have one, the other or neither, and

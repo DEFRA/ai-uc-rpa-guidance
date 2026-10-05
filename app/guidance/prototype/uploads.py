@@ -4,10 +4,13 @@ The zip goes the same way every upload does -- virus-scanned by CDP uploader
 and delivered to the guidance bucket, under its own prototype_uploads/ path --
 and the callback unpacks it into prototype_guides/. An upload *replaces* the
 guides: the old ones are purged first, so the manifest and the files beside
-it always come from one zip.
+it always come from one zip. The manifest is built here, from the versions in
+the zip (see manifest.build), and written after the files it names. A zip with
+no files purges the guides and writes no manifest.
 
 The zip is read where it lies, by byte range, and one entry at a time, so
-neither it nor its contents are ever held in memory. It is checked in full
+neither it nor its contents are ever held in memory, bar each version's
+content.md, which is read whole to build the manifest. It is checked in full
 before anything is purged -- its index first, then every entry read through
 and discarded -- so a bad upload leaves the current guides where they are.
 Any problem reading it is taken to mean the zip is corrupt.
@@ -20,12 +23,15 @@ file under prototype_uploads/ in the guidance bucket is ever read or deleted.
 """
 
 import asyncio
+import io
+import json
 import logging
+from typing import Any
 
 from app import config
 from app.common import http_client
 from app.guidance.documents import api_schemas as document_schemas
-from app.guidance.prototype import s3_repository, unpack
+from app.guidance.prototype import manifest, s3_repository, unpack
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +150,8 @@ async def _replace_guides(
     """Check the uploaded zip in full, then purge and stream its entries in.
 
     Returns:
-        How many files were written, and how many objects were purged.
+        How many files were unpacked (the manifest aside), and how many objects
+        were purged.
 
     Raises:
         InvalidGuidesZipError: If the zip cannot be read or fails a check.
@@ -164,6 +171,8 @@ async def _replace_guides(
             upload.filename,
         )
 
+        built = await asyncio.to_thread(_manifest_of, guides)
+
         purged = await s3_repo.purge()
 
         for entry in guides.entries:
@@ -173,4 +182,37 @@ async def _replace_guides(
             finally:
                 stream.close()
 
+    if built:
+        body = json.dumps(built, indent=2).encode() + b"\n"
+        await s3_repo.upload_stream(unpack.MANIFEST_NAME, io.BytesIO(body))
+    else:
+        logger.warning(
+            "%s holds no guides: every prototype guide was purged and no "
+            "manifest was written",
+            upload.filename,
+        )
+
     return len(guides.entries), purged
+
+
+def _manifest_of(guides: unpack.GuidesZip) -> dict[str, Any]:
+    """Build the manifest from every version's content.md in the zip."""
+    return manifest.build(
+        [
+            manifest.GuideVersion(
+                document_id=version.document_id,
+                version_id=version.version_id,
+                modified=version.modified,
+                markdown=_read(guides, version.entry),
+            )
+            for version in guides.versions
+        ]
+    )
+
+
+def _read(guides: unpack.GuidesZip, entry: unpack.GuideEntry) -> str:
+    stream = guides.open(entry)
+    try:
+        return stream.read().decode("utf-8", errors="replace")
+    finally:
+        stream.close()
