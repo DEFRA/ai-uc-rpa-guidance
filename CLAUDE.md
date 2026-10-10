@@ -47,6 +47,13 @@ Key conventions and non-obvious wiring:
 - **MongoDB** (`common/mongo.py`): async `pymongo` client, lazily created and cached, opened/closed in the FastAPI `lifespan`. In CDP it loads a custom CA from `common/tls.py` keyed by `MONGO_TRUSTSTORE`.
 - **Metrics** (`common/metrics.py`): AWS embedded metrics; only emitted when configured via the `AWS_EMF_*` env vars (see `.env.example`).
 
+## Coding rules
+
+SonarCloud's quality gate fails a pull request on any new major issue. These two come up most:
+
+- **One call in a `pytest.raises` block** (Sonar python:S5778). The block holds only the call under test. Build every argument, mock and id before it, nested calls included (`AsyncMock()`, `str(uuid.uuid4())`); assertions go after it. Otherwise setup that raises the same exception makes the test pass for the wrong reason.
+- **Code before regular expressions** (Sonar python:S8786 and its kin flag patterns that backtrack). Parse text with plain Python (`split`, `partition`, `startswith`, `str.isdigit`) when that is as fast and easier to read. Use a regex only for a simple, fast bulk operation where compiled matching really pays off, and keep it to a pattern that can match only one way.
+
 ## Gotchas
 
 - **Port is inconsistent across files.** `AppConfig.port` defaults to `8086`; the `Dockerfile`/`compose.yaml` use `8085` (debug `8086`); the README's curl example hits `8086`. Set `PORT` explicitly and check which context you're in rather than trusting any single default.

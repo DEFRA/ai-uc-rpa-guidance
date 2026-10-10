@@ -57,6 +57,16 @@ class TestSplit:
 
         assert found[-1].markdown == "## Annex A – Case Types\n\nThe case types.\n"
 
+    def test_a_heading_without_text_does_not_take_the_next_line(self) -> None:
+        found = sections.split("##\nNot a heading.\n\n## 1 Background\n")
+
+        assert [section.heading for section in found] == ["Background"]
+
+    def test_a_number_alone_is_the_heading(self) -> None:
+        found = sections.split("## 7\n")
+
+        assert [(section.number, section.heading) for section in found] == [("7", "7")]
+
     def test_a_guide_without_section_headings_has_no_sections(self) -> None:
         assert sections.split("# A title\n\nJust text.\n") == []
 

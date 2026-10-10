@@ -807,9 +807,10 @@ class TestCancelRebuild:
     ) -> None:
         rebuilds.get_rebuild.return_value = models.Rebuild(rebuild_id=REBUILD_ID)
         rebuilds.cancel.return_value = False
+        stop = AsyncMock()
 
         with pytest.raises(service.RebuildNotActiveError):
-            await summary_service.cancel_rebuild(REBUILD_ID, AsyncMock())
+            await summary_service.cancel_rebuild(REBUILD_ID, stop)
 
 
 class TestFailInterruptedRebuilds:
