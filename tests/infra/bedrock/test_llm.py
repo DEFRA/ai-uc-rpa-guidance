@@ -36,3 +36,19 @@ class TestClaudeSonnet:
             "guardrailVersion": "1",
             "trace": "enabled",
         }
+
+
+class TestBedrockClient:
+    """Test the client every Bedrock call goes through."""
+
+    def test_waits_for_long_replies(self) -> None:
+        assert llm.provider.client.meta.config.read_timeout == 300
+
+    def test_holds_more_calls_than_a_rebuild_makes_at_once(self) -> None:
+        assert llm.provider.client.meta.config.max_pool_connections == 25
+
+    def test_retries_a_failed_call_at_most_twice(self) -> None:
+        assert llm.provider.client.meta.config.retries == {
+            "mode": "standard",
+            "total_max_attempts": 3,
+        }

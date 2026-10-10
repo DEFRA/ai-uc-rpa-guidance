@@ -1,17 +1,36 @@
 """Tests for the guidance search service."""
 
+import json
 import uuid
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from app.guidance.documents import s3_repository
+from app.guidance.prototype import s3_repository
 from app.guidance.search import models, service
 from app.guidance.summaries import models as summary_models
 from app.guidance.summaries import repository as summary_repository
 
 DOCUMENT_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
+VERSION_ID = "bbbbbbbb-0000-0000-0000-000000000002"
+
+_MANIFEST = json.dumps(
+    {
+        "a-guide": {
+            "documentId": str(DOCUMENT_ID),
+            "title": "A Guide",
+            "latestVersion": 1,
+            "versions": [{"version": 1, "versionId": VERSION_ID}],
+        }
+    }
+).encode()
+
+_CONTENT = (
+    b"# A Guide\n\n"
+    b"## 1 Heading 1\n\nThe section 1 itself.\n\n"
+    b"## 2 Heading 2\n\nThe section 2 itself.\n"
+)
 
 RANKER = "app.guidance.search.service.ranker.ranker_agent.run"
 ASSESSOR = "app.guidance.search.service.assessor.assessor_agent.run"
@@ -27,7 +46,7 @@ def _summary() -> summary_models.DocumentSummary:
         keywords=["ROCR"],
         acronyms=[],
         path="s3://bucket/summary.md",
-        start_path=f"/guidance-documents/{DOCUMENT_ID}/sections/1",
+        start_path=f"/prototype/guides/{DOCUMENT_ID}/content",
         model="anthropic.claude-sonnet-4-6",
     )
 
@@ -41,7 +60,7 @@ def _section(number: str) -> summary_models.SectionSummary:
         summary=f"What section {number} covers.",
         keywords=[],
         acronyms=[],
-        start_path=f"/guidance-documents/{DOCUMENT_ID}/sections/{number}",
+        start_path=f"/prototype/guides/{DOCUMENT_ID}/sections/{number}",
         order=0,
     )
 
@@ -93,17 +112,18 @@ def sections() -> AsyncMock:
 
 
 @pytest.fixture
-def storage() -> AsyncMock:
-    repo = AsyncMock(spec=s3_repository.AbstractGuidanceStorageRepository)
-    repo.download_section.return_value = "## Heading\n\nThe section itself."
+def guides() -> AsyncMock:
+    repo = AsyncMock(spec=s3_repository.PrototypeGuideS3Repository)
+    repo.download_manifest.return_value = _MANIFEST
+    repo.download_content.return_value = _CONTENT
     return repo
 
 
 @pytest.fixture
 def search_service(
-    summaries: AsyncMock, sections: AsyncMock, storage: AsyncMock
+    summaries: AsyncMock, sections: AsyncMock, guides: AsyncMock
 ) -> service.SearchService:
-    return service.SearchService(summaries, sections, storage)
+    return service.SearchService(summaries, sections, guides)
 
 
 def _passes(
@@ -149,16 +169,22 @@ class TestSearch:
         assert result.section_number == "2"
         assert result.heading == "Heading 2"
         assert result.document_title == "A Guide"
-        assert result.start_path == f"/guidance-documents/{DOCUMENT_ID}/sections/2"
+        assert result.start_path == f"/prototype/guides/{DOCUMENT_ID}/sections/2"
 
     async def test_reads_the_section_itself_before_returning_it(
-        self, search_service: service.SearchService, storage: AsyncMock
+        self, search_service: service.SearchService, guides: AsyncMock
     ) -> None:
-        response = await _search(
-            search_service, "sda", _ranked((str(DOCUMENT_ID), "1"))
-        )
+        with patch(
+            ASSESSOR, new_callable=AsyncMock, return_value=_relevance(True)
+        ) as assess:
+            first, _, third = _passes(_ranked((str(DOCUMENT_ID), "1")))
+            with first, third:
+                response = await search_service.search("sda")
 
-        storage.download_section.assert_awaited_once_with(DOCUMENT_ID, "1")
+        guides.download_content.assert_awaited_once_with(str(DOCUMENT_ID), VERSION_ID)
+        assert assess.await_args.kwargs["deps"].section_markdown == (
+            "## 1 Heading 1\n\nThe section 1 itself.\n"
+        )
         assert response.results[0].checked is True
 
     async def test_says_what_the_section_gives_the_operator(
@@ -186,7 +212,7 @@ class TestSearch:
         assert [result.section_number for result in response.results] == ["2"]
 
     async def test_keeps_a_whole_document_result_unchecked(
-        self, search_service: service.SearchService, storage: AsyncMock
+        self, search_service: service.SearchService, guides: AsyncMock
     ) -> None:
         response = await _search(
             search_service, "a guide", _ranked((str(DOCUMENT_ID), None))
@@ -195,12 +221,12 @@ class TestSearch:
         assert response.results[0].section_number is None
         assert response.results[0].heading == "A Guide"
         assert response.results[0].checked is False
-        storage.download_section.assert_not_awaited()
+        guides.download_content.assert_not_awaited()
 
     async def test_falls_back_to_the_index_where_nothing_was_read(
-        self, search_service: service.SearchService, storage: AsyncMock
+        self, search_service: service.SearchService, guides: AsyncMock
     ) -> None:
-        storage.download_section.side_effect = Exception("NoSuchKey")
+        guides.download_content.side_effect = Exception("NoSuchKey")
 
         response = await _search(
             search_service, "sda", _ranked((str(DOCUMENT_ID), "1"))
@@ -211,9 +237,21 @@ class TestSearch:
         assert response.results[0].reason == "What section 1 covers."
 
     async def test_keeps_a_section_it_cannot_read_rather_than_losing_it(
-        self, search_service: service.SearchService, storage: AsyncMock
+        self, search_service: service.SearchService, guides: AsyncMock
     ) -> None:
-        storage.download_section.side_effect = Exception("NoSuchKey")
+        guides.download_content.side_effect = Exception("NoSuchKey")
+
+        response = await _search(
+            search_service, "sda", _ranked((str(DOCUMENT_ID), "1"))
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0].checked is False
+
+    async def test_keeps_a_section_the_guide_no_longer_has_unchecked(
+        self, search_service: service.SearchService, guides: AsyncMock
+    ) -> None:
+        guides.download_content.return_value = b"# A Guide\n\nNo sections now.\n"
 
         response = await _search(
             search_service, "sda", _ranked((str(DOCUMENT_ID), "1"))

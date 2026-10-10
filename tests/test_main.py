@@ -10,13 +10,19 @@ client = fastapi.testclient.TestClient(app.entrypoints.fastapi.app)
 
 def test_lifespan(mocker):
     mock_mongo_client = mocker.AsyncMock()
+    mock_db = mocker.Mock()
     mock_get_mongo = mocker.patch(
         "app.common.mongo.get_mongo_client", return_value=mock_mongo_client
     )
+    mocker.patch("app.common.mongo.get_db", return_value=mock_db)
+    start_worker = mocker.patch("app.guidance.summaries.worker.start")
+    stop_worker = mocker.patch("app.guidance.summaries.worker.stop")
 
     with fastapi.testclient.TestClient(app.entrypoints.fastapi.app):
         mock_get_mongo.assert_called_once()
+        start_worker.assert_awaited_once_with(mock_db)
 
+    stop_worker.assert_awaited_once()
     mock_mongo_client.close.assert_awaited_once()
 
 

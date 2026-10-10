@@ -64,6 +64,25 @@ class TestResolveVersionId:
         assert manifest.resolve_version_id({}, _DOCUMENT_ID) is None
 
 
+class TestLatestVersions:
+    """Test manifest.latest_versions."""
+
+    def test_gives_each_guide_its_latest_version_and_title(self) -> None:
+        titled = {"claims-guide": {**_MANIFEST["claims-guide"], "title": "Claims"}}
+
+        assert manifest.latest_versions(titled) == [
+            manifest.LatestVersion(
+                document_id=_DOCUMENT_ID, title="Claims", version_id=_V2_ID
+            )
+        ]
+
+    def test_gives_an_untitled_guide_an_empty_title(self) -> None:
+        assert manifest.latest_versions(_MANIFEST)[0].title == ""
+
+    def test_gives_nothing_for_an_empty_manifest(self) -> None:
+        assert manifest.latest_versions({}) == []
+
+
 _AT = datetime(2026, 10, 5, 13, 0, 0, tzinfo=UTC)
 
 

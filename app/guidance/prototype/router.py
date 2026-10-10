@@ -24,6 +24,7 @@ from app.guidance.prototype import (
     dependencies,
     manifest,
     s3_repository,
+    sections,
     unpack,
     uploads,
 )
@@ -149,21 +150,69 @@ async def get_content(
             checked when version_id is omitted), or if the resolved content
             object itself does not exist in S3.
     """
-    resolved_version_id = version_id
+    content = await _read_content(s3_repo, document_id, version_id)
+    return fastapi.Response(content=content, media_type=_MARKDOWN_MEDIA_TYPE)
 
-    if resolved_version_id is None:
-        resolved_version_id = await _resolve_latest_version_id(s3_repo, document_id)
 
-    try:
-        content = await s3_repo.download_content(document_id, resolved_version_id)
-        return fastapi.Response(content=content, media_type=_MARKDOWN_MEDIA_TYPE)
-    except botocore.exceptions.ClientError as exc:
-        if exc.response["Error"]["Code"] == "NoSuchKey":
-            raise fastapi.HTTPException(
-                status_code=fastapi.status.HTTP_404_NOT_FOUND,
-                detail="Content not found",
-            ) from exc
-        raise
+@router.get(
+    "/{document_id}/sections/{section_number}",
+    status_code=fastapi.status.HTTP_200_OK,
+    responses={
+        fastapi.status.HTTP_200_OK: {
+            "description": "One section of a prototype guide, as Markdown",
+            "content": {"text/markdown": {}},
+        },
+        fastapi.status.HTTP_404_NOT_FOUND: {
+            "description": "Guide, content or section not found",
+        },
+    },
+)
+async def get_section(
+    document_id: str,
+    section_number: str,
+    s3_repo: Annotated[
+        s3_repository.PrototypeGuideS3Repository,
+        fastapi.Depends(dependencies.get_s3_repository),
+    ],
+    version_id: Annotated[
+        str | None,
+        fastapi.Query(
+            description=(
+                "Specific version id to read. Omit to resolve the "
+                "document's latest version from the manifest."
+            )
+        ),
+    ] = None,
+) -> fastapi.Response:
+    """Return one section of a prototype guide version, as Markdown.
+
+    The section is cut from the version's content.md: its heading and its own
+    text, up to the next section heading of any level (see sections.py).
+
+    Args:
+        document_id: The guide's document id (a uuid4 string).
+        section_number: The section's dotted number, or the slug of an
+            unnumbered section's heading.
+        s3_repo: The prototype guide S3 repository, injected via FastAPI DI.
+        version_id: An explicit version id, or None to use the latest.
+
+    Returns:
+        Markdown response with media type text/markdown.
+
+    Raises:
+        HTTPException: 404 if the guide or its content cannot be found, as
+            for /content, or if the guide has no such section.
+    """
+    content = await _read_content(s3_repo, document_id, version_id)
+
+    section = sections.find(content.decode(), section_number)
+    if section is None:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_404_NOT_FOUND,
+            detail=f"No section {section_number}",
+        )
+
+    return fastapi.Response(content=section.markdown, media_type=_MARKDOWN_MEDIA_TYPE)
 
 
 @router.get(
@@ -362,6 +411,42 @@ async def handle_upload_callback(
         await uploads.handle_callback(payload, s3_repo)
     except unpack.InvalidGuidesZipError as exc:
         logger.warning("Rejected prototype guides upload: %s", exc)
+
+
+async def _read_content(
+    s3_repo: s3_repository.PrototypeGuideS3Repository,
+    document_id: str,
+    version_id: str | None,
+) -> bytes:
+    """Download a guide version's content.md, the latest if no version is given.
+
+    Args:
+        s3_repo: The prototype guide S3 repository.
+        document_id: The guide's document id.
+        version_id: An explicit version id, or None to use the latest.
+
+    Returns:
+        The raw Markdown bytes.
+
+    Raises:
+        HTTPException: 404 if document_id is not in the manifest (only
+            checked when version_id is omitted), or if the content object
+            itself does not exist in S3.
+    """
+    resolved_version_id = version_id
+
+    if resolved_version_id is None:
+        resolved_version_id = await _resolve_latest_version_id(s3_repo, document_id)
+
+    try:
+        return await s3_repo.download_content(document_id, resolved_version_id)
+    except botocore.exceptions.ClientError as exc:
+        if exc.response["Error"]["Code"] == "NoSuchKey":
+            raise fastapi.HTTPException(
+                status_code=fastapi.status.HTTP_404_NOT_FOUND,
+                detail="Content not found",
+            ) from exc
+        raise
 
 
 async def _resolve_latest_version_id(

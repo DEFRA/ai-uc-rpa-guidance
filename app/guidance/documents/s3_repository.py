@@ -53,6 +53,10 @@ class AbstractGuidanceStorageRepository(ABC):
         """Delete every stored summary, returning how many were removed."""
 
     @abstractmethod
+    async def delete_summary(self, document_id: uuid.UUID) -> None:
+        """Delete one document's stored summary, if it has one."""
+
+    @abstractmethod
     async def upload_section(
         self, document_id: uuid.UUID, section_number: str, markdown: str
     ) -> None:
@@ -219,6 +223,18 @@ class GuidanceS3Repository(AbstractGuidanceStorageRepository):
         logger.debug("Uploaded summary to s3://%s/%s", self.bucket, key)
 
         return f"s3://{self.bucket}/{key}"
+
+    async def delete_summary(self, document_id: uuid.UUID) -> None:
+        """Delete parsed_guidance/{document_id}/summary.md, if it is there.
+
+        Args:
+            document_id: The guidance document ID.
+        """
+        key = summary_key(document_id)
+
+        await asyncio.to_thread(self.s3.delete_object, Bucket=self.bucket, Key=key)
+
+        logger.debug("Deleted summary s3://%s/%s", self.bucket, key)
 
     async def delete_summaries(self) -> int:
         """Delete every summary under the parsed-guidance prefix.

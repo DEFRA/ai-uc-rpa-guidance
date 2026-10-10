@@ -136,6 +136,20 @@ class TestDownloadManifest:
         assert result == json_str
 
 
+class TestDeleteSummary:
+    @pytest.mark.asyncio
+    async def test_deletes_one_documents_summary(
+        self, repo: s3_repository.GuidanceS3Repository, mock_s3: MagicMock
+    ) -> None:
+        doc_id = uuid.UUID("507f1f77-bcf8-6cd7-9943-9011aabbccdd")
+
+        await repo.delete_summary(doc_id)
+
+        mock_s3.delete_object.assert_called_once_with(
+            Bucket="guidance-bucket", Key=f"parsed_guidance/{doc_id}/summary.md"
+        )
+
+
 class TestDeleteSummaries:
     @pytest.mark.asyncio
     async def test_deletes_every_summary_object(

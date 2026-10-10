@@ -4,8 +4,8 @@ from typing import Annotated
 
 import fastapi
 
-from app.guidance.documents import dependencies as document_dependencies
-from app.guidance.documents import s3_repository
+from app.guidance.prototype import dependencies as prototype_dependencies
+from app.guidance.prototype import s3_repository
 from app.guidance.search import service
 from app.guidance.summaries import dependencies as summary_dependencies
 from app.guidance.summaries import repository as summary_repository
@@ -20,9 +20,9 @@ def get_search_service(
         summary_repository.SectionSummaryRepository,
         fastapi.Depends(summary_dependencies.get_section_repository),
     ],
-    storage: Annotated[
-        s3_repository.GuidanceS3Repository,
-        fastapi.Depends(document_dependencies.get_s3_repository),
+    guides: Annotated[
+        s3_repository.PrototypeGuideS3Repository,
+        fastapi.Depends(prototype_dependencies.get_s3_repository),
     ],
 ) -> service.SearchService:
     """Get the search service.
@@ -30,9 +30,9 @@ def get_search_service(
     Args:
         summaries: Repository for the document summaries.
         sections: Repository for the section entries.
-        storage: Storage for the parsed section Markdown.
+        guides: Storage for the prototype guides the index names.
 
     Returns:
         Initialized SearchService.
     """
-    return service.SearchService(summaries, sections, storage)
+    return service.SearchService(summaries, sections, guides)
