@@ -1,12 +1,16 @@
 """Business logic for searching the guidance index."""
 
 import asyncio
+import json
 import logging
 import time
+import uuid
 
 from pydantic_ai.models import bedrock
 
-from app.guidance.documents import s3_repository
+from app.guidance.prototype import manifest as prototype_manifest
+from app.guidance.prototype import s3_repository as prototype_s3_repository
+from app.guidance.prototype import sections as prototype_sections
 from app.guidance.search import api_schemas, index_text, models
 from app.guidance.search.agents import answerer, assessor, ranker
 from app.guidance.summaries import models as summary_models
@@ -35,18 +39,18 @@ class SearchService:
         self,
         summaries: summary_repository.SummaryRepository,
         sections: summary_repository.SectionSummaryRepository,
-        storage: s3_repository.AbstractGuidanceStorageRepository,
+        guides: prototype_s3_repository.PrototypeGuideS3Repository,
     ) -> None:
         """Initialize the service with its repositories.
 
         Args:
             summaries: Repository holding one summary per document.
             sections: Repository holding one entry per section.
-            storage: Storage holding the parsed section Markdown.
+            guides: Storage holding the prototype guides the index names.
         """
         self.summaries = summaries
         self.sections = sections
-        self.storage = storage
+        self.guides = guides
 
     async def search(self, query: str) -> api_schemas.SearchResponse:
         """Answer a query from the index, checking the sections it proposes.
@@ -208,7 +212,7 @@ class SearchService:
 
             async with limit:
                 try:
-                    markdown = await self.storage.download_section(
+                    markdown = await self._read_section(
                         result.document_id, result.section_number
                     )
                 except Exception:  # noqa: BLE001 - an unreadable section stands
@@ -246,6 +250,27 @@ class SearchService:
         assessed = await asyncio.gather(*(assess(result) for result in results))
 
         return [result for result in assessed if result is not None]
+
+    async def _read_section(self, document_id: uuid.UUID, number: str) -> str:
+        """Read one section of the latest version of a guide.
+
+        Raises:
+            LookupError: If the guide or the section is no longer there.
+        """
+        manifest = json.loads(await self.guides.download_manifest())
+        version_id = prototype_manifest.resolve_version_id(manifest, str(document_id))
+        if version_id is None:
+            msg = f"No guide {document_id}"
+            raise LookupError(msg)
+
+        content = await self.guides.download_content(str(document_id), version_id)
+
+        section = prototype_sections.find(content.decode(), number)
+        if section is None:
+            msg = f"No section {number} in guide {document_id}"
+            raise LookupError(msg)
+
+        return section.markdown
 
     async def _answer(
         self, query: str, results: list[models.SearchResult]

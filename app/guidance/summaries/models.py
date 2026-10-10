@@ -8,42 +8,50 @@ one-to-one by construction rather than by convention.
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any
 
 import pydantic
 
 from app.infra.prompts import repository as prompt_repo
 
-# Where a reader starts reading the document a summary describes. That is its
-# first section: a reader who has read the summary has had the contents page's
-# job done for them already, and wants the guidance itself. A document the
-# parse found no sections in has none to open, so its contents page stands in.
-# The index stores the path so that whatever reads the index — a search agent,
-# the admin page, a reader opening summary.md — has the way into the document.
-SECTION_PATH_TEMPLATE = "/guidance-documents/{document_id}/sections/{section_number}"
-CONTENTS_PATH_TEMPLATE = "/guidance-documents/{document_id}/view"
+# Where a reader opens what the index names: a guide as a whole, or one of its
+# sections. Both are served by the prototype guides API. The index stores the
+# path so that whatever reads the index — a search agent, the admin page, a
+# reader opening summary.md — has the way into the guide.
+CONTENT_PATH_TEMPLATE = "/prototype/guides/{document_id}/content"
+SECTION_PATH_TEMPLATE = "/prototype/guides/{document_id}/sections/{section_number}"
 
 
-def start_path_for(document_id: uuid.UUID, first_section: str | None) -> str:
-    """Return the path at which a reader starts reading a document.
+def content_path_for(document_id: uuid.UUID) -> str:
+    """Return the path at which a guide is read as a whole.
 
     Args:
-        document_id: The guidance document UUID.
-        first_section: The number of the document's first section, or None if
-            the parse produced no sections.
+        document_id: The guide's document id.
 
     Returns:
-        The path of that first section, or of the contents page.
+        The path of the guide's content.
     """
-    if first_section is None:
-        return CONTENTS_PATH_TEMPLATE.format(document_id=document_id)
+    return CONTENT_PATH_TEMPLATE.format(document_id=document_id)
 
+
+def section_path_for(document_id: uuid.UUID, section_number: str) -> str:
+    """Return the path at which one section of a guide is read.
+
+    Args:
+        document_id: The guide's document id.
+        section_number: The section's number.
+
+    Returns:
+        The path of the section.
+    """
     return SECTION_PATH_TEMPLATE.format(
-        document_id=document_id, section_number=first_section
+        document_id=document_id, section_number=section_number
     )
 
 
@@ -292,6 +300,12 @@ class DocumentSummary:
     path: str
     start_path: str
     model: str
+    # What the summary was built from: the guide's version, and the SHA-256 of
+    # its content.md exactly as read. A partial rebuild skips a guide whose
+    # content still has this hash. None on a record written before either was
+    # kept, which a partial rebuild therefore indexes again.
+    content_sha256: str | None = None
+    version_id: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
 
@@ -321,20 +335,39 @@ class DocumentSummary:
             ],
             path=doc["path"],
             # A summary written before the index carried the link knows which
-            # document it describes but not where that document's sections
-            # begin, so it opens at the contents page until it is rebuilt.
-            start_path=doc.get("start_path") or start_path_for(doc["_id"], None),
+            # guide it describes, so it opens the guide as a whole until it is
+            # rebuilt.
+            start_path=doc.get("start_path") or content_path_for(doc["_id"]),
             model=doc["model"],
+            content_sha256=doc.get("content_sha256"),
+            version_id=doc.get("version_id"),
             created_at=doc["created_at"],
             updated_at=doc["updated_at"],
         )
+
+    def _frontmatter(self) -> str:
+        """Render what the summary was built from as YAML frontmatter.
+
+        Each value is written as a JSON string, which YAML reads as a string,
+        so a model id or timestamp is never read as anything else.
+        """
+        fields = {
+            "document_id": str(self.document_id),
+            "version_id": self.version_id,
+            "content_sha256": self.content_sha256,
+            "model": self.model,
+            "updated_at": self.updated_at.isoformat(),
+        }
+        lines = [f"{name}: {json.dumps(value)}" for name, value in fields.items()]
+        return "---\n" + "\n".join(lines) + "\n---\n"
 
     def render_markdown(self, sections: list[SectionSummary]) -> str:
         """Render the whole index entry for this document as Markdown.
 
         This is the artefact stored in S3: the document's summary followed by
         one entry per section, each linking to the section it describes — the
-        same index the admin page shows, in a form anything can read.
+        same index the admin page shows, in a form anything can read. YAML
+        frontmatter at the top says what it was built from and when.
 
         Args:
             sections: The document's section entries, in document order.
@@ -343,6 +376,7 @@ class DocumentSummary:
             The rendered Markdown.
         """
         parts = [
+            self._frontmatter(),
             f"# {self.title}\n",
             f"[Open this document]({self.start_path})\n",
             "## What this document is about\n",
@@ -385,3 +419,92 @@ class DocumentSummary:
             )
 
         return "\n".join(parts)
+
+
+class RebuildMode(StrEnum):
+    """What a rebuild indexes."""
+
+    # Discard the whole index, then index every guide.
+    FULL = "full"
+    # Index only the guides whose content has changed or that are new, and
+    # remove those no longer uploaded.
+    PARTIAL = "partial"
+
+
+class RebuildStatus(StrEnum):
+    """Where a rebuild of the index has got to."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETE = "complete"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+@dataclass
+class RebuildFailure:
+    """A guide a rebuild could not index, and why."""
+
+    document_id: str
+    title: str
+    error_message: str
+
+
+@dataclass
+class Rebuild:
+    """One rebuild of the index, as held in MongoDB while it runs and after.
+
+    `completed` counts the guides finished, indexed or failed; `current_title`
+    is the guide started last. Together they are the rebuild's progress.
+    """
+
+    rebuild_id: uuid.UUID
+    mode: RebuildMode = RebuildMode.FULL
+    status: RebuildStatus = RebuildStatus.QUEUED
+    total: int = 0
+    completed: int = 0
+    current_title: str | None = None
+    failures: list[RebuildFailure] = field(default_factory=list)
+    purged: int = 0
+    skipped: int = 0
+    duration_seconds: float | None = None
+    error_message: str | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
+
+    def to_mongo_doc(self) -> dict[str, Any]:
+        """Serialise the rebuild to a MongoDB document dict."""
+        return {
+            "_id": self.rebuild_id,
+            "mode": self.mode.value,
+            "status": self.status.value,
+            "total": self.total,
+            "completed": self.completed,
+            "current_title": self.current_title,
+            "failures": [vars(failure) for failure in self.failures],
+            "purged": self.purged,
+            "skipped": self.skipped,
+            "duration_seconds": self.duration_seconds,
+            "error_message": self.error_message,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    @classmethod
+    def from_mongo_doc(cls, doc: dict[str, Any]) -> Rebuild:
+        """Map a MongoDB document dict to a Rebuild."""
+        return cls(
+            rebuild_id=doc["_id"],
+            mode=RebuildMode(doc.get("mode", RebuildMode.FULL)),
+            status=RebuildStatus(doc["status"]),
+            total=doc["total"],
+            completed=doc["completed"],
+            current_title=doc.get("current_title"),
+            failures=[RebuildFailure(**failure) for failure in doc["failures"]],
+            purged=doc["purged"],
+            skipped=doc.get("skipped", 0),
+            duration_seconds=doc.get("duration_seconds"),
+            error_message=doc.get("error_message"),
+            created_at=doc["created_at"],
+            updated_at=doc["updated_at"],
+        )

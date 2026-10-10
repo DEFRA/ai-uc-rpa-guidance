@@ -207,6 +207,74 @@ class TestContentEndpoint:
         assert response.json()["detail"] == "Content not found"
 
 
+_GUIDE = b"# Claims Guide\n\n## 1 Background\n\nWhy.\n\n### 1.1 Scope\n\nWhat.\n"
+
+
+class TestSectionEndpoint:
+    """Test GET /prototype/guides/{document_id}/sections/{section_number}."""
+
+    def test_returns_only_that_section_of_the_latest_version(
+        self, client_with_s3: fastapi.testclient.TestClient, mock_s3_repo: AsyncMock
+    ) -> None:
+        mock_s3_repo.download_manifest.return_value = _MANIFEST_JSON.encode()
+        mock_s3_repo.download_content.return_value = _GUIDE
+
+        response = client_with_s3.get(f"/prototype/guides/{_DOCUMENT_ID}/sections/1")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/markdown")
+        assert response.text == "## 1 Background\n\nWhy.\n"
+        mock_s3_repo.download_content.assert_awaited_once_with(_DOCUMENT_ID, _V2_ID)
+
+    def test_reads_an_explicit_version_without_the_manifest(
+        self, client_with_s3: fastapi.testclient.TestClient, mock_s3_repo: AsyncMock
+    ) -> None:
+        mock_s3_repo.download_content.return_value = _GUIDE
+
+        response = client_with_s3.get(
+            f"/prototype/guides/{_DOCUMENT_ID}/sections/1.1",
+            params={"version_id": _V1_ID},
+        )
+
+        assert response.text == "### 1.1 Scope\n\nWhat.\n"
+        mock_s3_repo.download_manifest.assert_not_called()
+        mock_s3_repo.download_content.assert_awaited_once_with(_DOCUMENT_ID, _V1_ID)
+
+    def test_returns_404_for_a_section_the_guide_does_not_have(
+        self, client_with_s3: fastapi.testclient.TestClient, mock_s3_repo: AsyncMock
+    ) -> None:
+        mock_s3_repo.download_manifest.return_value = _MANIFEST_JSON.encode()
+        mock_s3_repo.download_content.return_value = _GUIDE
+
+        response = client_with_s3.get(f"/prototype/guides/{_DOCUMENT_ID}/sections/9")
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "No section 9"
+
+    def test_returns_404_for_unknown_document_id(
+        self, client_with_s3: fastapi.testclient.TestClient, mock_s3_repo: AsyncMock
+    ) -> None:
+        mock_s3_repo.download_manifest.return_value = _MANIFEST_JSON.encode()
+
+        response = client_with_s3.get("/prototype/guides/unknown-doc-id/sections/1")
+
+        assert response.status_code == 404
+        mock_s3_repo.download_content.assert_not_called()
+
+    def test_returns_404_when_content_object_missing(
+        self, client_with_s3: fastapi.testclient.TestClient, mock_s3_repo: AsyncMock
+    ) -> None:
+        mock_s3_repo.download_content.side_effect = _no_such_key_error()
+
+        response = client_with_s3.get(
+            f"/prototype/guides/{_DOCUMENT_ID}/sections/1",
+            params={"version_id": _V1_ID},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Content not found"
+
+
 class TestAssetEndpoint:
     """Test GET /prototype/guides/{document_id}/assets/{asset_id}."""
 

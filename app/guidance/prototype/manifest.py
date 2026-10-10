@@ -143,6 +143,40 @@ def _unique(slug: str, taken: dict[str, Any]) -> str:
     return f"{slug}-{suffix}"
 
 
+@dataclass(frozen=True)
+class LatestVersion:
+    """A guide's latest version, as a manifest names it."""
+
+    document_id: str
+    title: str
+    version_id: str
+
+
+def latest_versions(manifest: dict[str, Any]) -> list[LatestVersion]:
+    """Return the latest version of every guide in a parsed manifest.
+
+    Args:
+        manifest: The parsed contents of prototype_guides/manifest.json.
+
+    Returns:
+        One entry per guide, in manifest order. A guide whose latest version
+        cannot be resolved is left out.
+    """
+    found = []
+    for guide in manifest.values():
+        document_id = str(guide["documentId"])
+        version_id = resolve_version_id(manifest, document_id)
+        if version_id is not None:
+            found.append(
+                LatestVersion(
+                    document_id=document_id,
+                    title=str(guide.get("title", "")),
+                    version_id=version_id,
+                )
+            )
+    return found
+
+
 def resolve_version_id(
     manifest: dict[str, Any],
     document_id: str,

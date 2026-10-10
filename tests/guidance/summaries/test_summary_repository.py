@@ -122,7 +122,7 @@ class TestGetSummary:
 
 
 class TestGetSummaryWithoutALink:
-    async def test_opens_the_contents_page_for_a_record_written_before_it(
+    async def test_opens_the_whole_guide_for_a_record_written_before_it(
         self, repo: repository.SummaryRepository
     ) -> None:
         summary = _make_summary()
@@ -134,7 +134,7 @@ class TestGetSummaryWithoutALink:
         stored = await repo.get_summary(summary.document_id)
 
         assert stored is not None
-        assert stored.start_path == f"/guidance-documents/{summary.document_id}/view"
+        assert stored.start_path == f"/prototype/guides/{summary.document_id}/content"
 
 
 class TestDeleteAllSummaries:
@@ -288,3 +288,69 @@ class TestDeleteAllSections:
 
         assert deleted == 2
         assert await section_repo.list_sections() == []
+
+
+class TestContentHash:
+    async def test_records_what_the_summary_was_built_from(
+        self, repo: repository.SummaryRepository
+    ) -> None:
+        summary = _make_summary(content_sha256="ab" * 32, version_id="v-2")
+
+        await repo.save_summary(summary)
+
+        stored = await repo.get_summary(summary.document_id)
+        assert stored is not None
+        assert stored.content_sha256 == "ab" * 32
+        assert stored.version_id == "v-2"
+
+    async def test_a_record_written_before_hashes_has_none(
+        self, repo: repository.SummaryRepository
+    ) -> None:
+        summary = _make_summary()
+        await repo.save_summary(summary)
+        await repo.collection.update_one(
+            {"_id": summary.document_id},
+            {"$unset": {"content_sha256": "", "version_id": ""}},
+        )
+
+        stored = await repo.get_summary(summary.document_id)
+
+        assert stored is not None
+        assert stored.content_sha256 is None
+        assert stored.version_id is None
+
+
+class TestDeleteSummary:
+    async def test_discards_one_guides_summary_only(
+        self, repo: repository.SummaryRepository
+    ) -> None:
+        kept, removed = _make_summary(), _make_summary()
+        await repo.save_summary(kept)
+        await repo.save_summary(removed)
+
+        deleted = await repo.delete_summary(removed.document_id)
+
+        assert deleted is True
+        assert await repo.get_summary(removed.document_id) is None
+        assert await repo.get_summary(kept.document_id) is not None
+
+
+class TestDeleteSections:
+    async def test_discards_one_documents_entries_only(
+        self, section_repo: repository.SectionSummaryRepository
+    ) -> None:
+        kept, removed = uuid.uuid4(), uuid.uuid4()
+        await section_repo.save_sections(
+            [
+                _make_section(kept, "1"),
+                _make_section(removed, "1"),
+                _make_section(removed, "2"),
+            ]
+        )
+
+        deleted = await section_repo.delete_sections(removed)
+
+        assert deleted == 2
+        assert [entry.document_id for entry in await section_repo.list_sections()] == [
+            kept
+        ]

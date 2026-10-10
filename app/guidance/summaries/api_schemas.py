@@ -5,18 +5,7 @@ from datetime import datetime
 import pydantic
 import pydantic.alias_generators
 
-
-class SummaryRebuildRequest(pydantic.BaseModel):
-    """Request to rebuild the summaries for a set of documents."""
-
-    model_config = pydantic.ConfigDict(
-        populate_by_name=True, alias_generator=pydantic.alias_generators.to_camel
-    )
-
-    document_ids: list[pydantic.UUID4] = pydantic.Field(
-        default_factory=list,
-        description="The documents to summarise.",
-    )
+from app.guidance.summaries import models
 
 
 class AcronymResponse(pydantic.BaseModel):
@@ -103,20 +92,15 @@ class SummaryResponse(pydantic.BaseModel):
         default_factory=list,
         description="One entry per section, in document order",
     )
+    content_sha256: str | None = pydantic.Field(
+        None, description="SHA-256 of the guide's content.md it was built from"
+    )
+    version_id: str | None = pydantic.Field(
+        None, description="The guide version it was built from"
+    )
     updated_at: datetime = pydantic.Field(
         ..., description="When the summary was last rebuilt"
     )
-
-
-class SummaryFailureResponse(pydantic.BaseModel):
-    """A document whose summary could not be rebuilt."""
-
-    model_config = pydantic.ConfigDict(
-        populate_by_name=True, alias_generator=pydantic.alias_generators.to_camel
-    )
-
-    document_id: str = pydantic.Field(..., description="The document that failed")
-    error_message: str = pydantic.Field(..., description="Why it failed")
 
 
 class SummaryListResponse(pydantic.BaseModel):
@@ -131,16 +115,76 @@ class SummaryListResponse(pydantic.BaseModel):
     )
 
 
-class SummaryRebuildResponse(SummaryListResponse):
-    """What a rebuild discarded, produced, and could not produce."""
+class RebuildRequest(pydantic.BaseModel):
+    """What a rebuild of the index should index."""
 
+    model_config = pydantic.ConfigDict(
+        populate_by_name=True, alias_generator=pydantic.alias_generators.to_camel
+    )
+
+    mode: models.RebuildMode = pydantic.Field(
+        models.RebuildMode.FULL,
+        description=(
+            "full: discard the index and index every guide. partial: index "
+            "only guides whose content changed or that are new, and remove "
+            "those no longer uploaded."
+        ),
+    )
+
+
+class RebuildFailureResponse(pydantic.BaseModel):
+    """A guide a rebuild could not index."""
+
+    model_config = pydantic.ConfigDict(
+        populate_by_name=True, alias_generator=pydantic.alias_generators.to_camel
+    )
+
+    document_id: str = pydantic.Field(..., description="The guide that failed")
+    title: str = pydantic.Field(..., description="The guide's title")
+    error_message: str = pydantic.Field(..., description="Why it failed")
+
+
+class RebuildResponse(pydantic.BaseModel):
+    """A rebuild of the index, and how far it has got."""
+
+    model_config = pydantic.ConfigDict(
+        populate_by_name=True, alias_generator=pydantic.alias_generators.to_camel
+    )
+
+    rebuild_id: str = pydantic.Field(..., description="The rebuild's id")
+    mode: str = pydantic.Field(..., description="full or partial")
+    status: str = pydantic.Field(
+        ..., description="queued, running, complete, failed or cancelled"
+    )
+    total: int = pydantic.Field(
+        ..., description="How many guides it covers, skipped ones included"
+    )
+    completed: int = pydantic.Field(
+        ...,
+        description=(
+            "How many guides it has finished, indexed or failed; skipped ones "
+            "count as finished from the start"
+        ),
+    )
+    current_title: str | None = pydantic.Field(
+        None, description="The guide it started last"
+    )
+    failures: list[RebuildFailureResponse] = pydantic.Field(
+        default_factory=list, description="Guides it could not index"
+    )
     purged: int = pydantic.Field(
-        ..., description="Summaries discarded before the rebuild began"
+        ...,
+        description=(
+            "Summaries removed: all of them for a full rebuild, those of "
+            "guides no longer uploaded for a partial one"
+        ),
     )
-    duration_seconds: float = pydantic.Field(
-        ..., description="How long the rebuild took, wall clock"
+    skipped: int = pydantic.Field(
+        0, description="Guides left alone because they were already up to date"
     )
-    failures: list[SummaryFailureResponse] = pydantic.Field(
-        default_factory=list,
-        description="Documents whose summary could not be rebuilt",
+    duration_seconds: float | None = pydantic.Field(
+        None, description="How long it took, wall clock, once complete"
+    )
+    error_message: str | None = pydantic.Field(
+        None, description="Why the rebuild as a whole failed"
     )

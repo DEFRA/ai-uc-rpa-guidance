@@ -14,6 +14,7 @@ from app.guidance.documents import router as guidance_router
 from app.guidance.prototype import router as prototype_router
 from app.guidance.search import router as search_router
 from app.guidance.summaries import router as summaries_router
+from app.guidance.summaries import worker as summaries_worker
 from app.health import router as health_router
 from app.publishing import router as publishing_router
 from app.review import router as review_router
@@ -27,7 +28,9 @@ config = app_config.get_config()
 async def lifespan(_: fastapi.FastAPI) -> AsyncGenerator[None]:
     client = await mongo.get_mongo_client()
     logger.info("MongoDB client connected")
+    await summaries_worker.start(await mongo.get_db(client))
     yield
+    await summaries_worker.stop()
     if client:
         await client.close()
         logger.info("MongoDB client closed")
