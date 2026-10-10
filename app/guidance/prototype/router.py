@@ -155,6 +155,64 @@ async def get_content(
 
 
 @router.get(
+    "/{document_id}/sections",
+    status_code=fastapi.status.HTTP_200_OK,
+    responses={
+        fastapi.status.HTTP_404_NOT_FOUND: {
+            "description": "Guide or content not found",
+        },
+    },
+)
+async def get_sections(
+    document_id: str,
+    s3_repo: Annotated[
+        s3_repository.PrototypeGuideS3Repository,
+        fastapi.Depends(dependencies.get_s3_repository),
+    ],
+    version_id: Annotated[
+        str | None,
+        fastapi.Query(
+            description=(
+                "Specific version id to read. Omit to resolve the "
+                "document's latest version from the manifest."
+            )
+        ),
+    ] = None,
+) -> api_schemas.GuideSections:
+    """Return a prototype guide version cut into its sections.
+
+    Enough to show the guide's outline, one top-level section at a time, or
+    the whole guide with every section in its place.
+
+    Args:
+        document_id: The guide's document id (a uuid4 string).
+        s3_repo: The prototype guide S3 repository, injected via FastAPI DI.
+        version_id: An explicit version id, or None to use the latest.
+
+    Returns:
+        The text before the first section, and every section in order.
+
+    Raises:
+        HTTPException: 404 if the guide or its content cannot be found, as
+            for /content.
+    """
+    markdown = (await _read_content(s3_repo, document_id, version_id)).decode()
+
+    return api_schemas.GuideSections(
+        introduction=sections.introduction(markdown),
+        sections=[
+            api_schemas.GuideSection(
+                number=section.number,
+                heading=section.heading,
+                level=section.level,
+                markdown=section.markdown,
+            )
+            for section in sections.split(markdown)
+        ],
+    )
+
+
+@router.get(
     "/{document_id}/sections/{section_number}",
     status_code=fastapi.status.HTTP_200_OK,
     responses={

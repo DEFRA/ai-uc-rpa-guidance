@@ -275,6 +275,62 @@ class TestSectionEndpoint:
         assert response.json()["detail"] == "Content not found"
 
 
+class TestSectionsEndpoint:
+    """Test GET /prototype/guides/{document_id}/sections."""
+
+    def test_returns_the_introduction_and_every_section_in_order(
+        self, client_with_s3: fastapi.testclient.TestClient, mock_s3_repo: AsyncMock
+    ) -> None:
+        mock_s3_repo.download_manifest.return_value = _MANIFEST_JSON.encode()
+        mock_s3_repo.download_content.return_value = _GUIDE
+
+        response = client_with_s3.get(f"/prototype/guides/{_DOCUMENT_ID}/sections")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "introduction": "# Claims Guide\n",
+            "sections": [
+                {
+                    "number": "1",
+                    "heading": "Background",
+                    "level": 1,
+                    "markdown": "## 1 Background\n\nWhy.\n",
+                },
+                {
+                    "number": "1.1",
+                    "heading": "Scope",
+                    "level": 2,
+                    "markdown": "### 1.1 Scope\n\nWhat.\n",
+                },
+            ],
+        }
+        mock_s3_repo.download_content.assert_awaited_once_with(_DOCUMENT_ID, _V2_ID)
+
+    def test_reads_an_explicit_version_without_the_manifest(
+        self, client_with_s3: fastapi.testclient.TestClient, mock_s3_repo: AsyncMock
+    ) -> None:
+        mock_s3_repo.download_content.return_value = _GUIDE
+
+        response = client_with_s3.get(
+            f"/prototype/guides/{_DOCUMENT_ID}/sections",
+            params={"version_id": _V1_ID},
+        )
+
+        assert response.status_code == 200
+        mock_s3_repo.download_manifest.assert_not_called()
+        mock_s3_repo.download_content.assert_awaited_once_with(_DOCUMENT_ID, _V1_ID)
+
+    def test_returns_404_for_unknown_document_id(
+        self, client_with_s3: fastapi.testclient.TestClient, mock_s3_repo: AsyncMock
+    ) -> None:
+        mock_s3_repo.download_manifest.return_value = _MANIFEST_JSON.encode()
+
+        response = client_with_s3.get("/prototype/guides/unknown-doc-id/sections")
+
+        assert response.status_code == 404
+        mock_s3_repo.download_content.assert_not_called()
+
+
 class TestAssetEndpoint:
     """Test GET /prototype/guides/{document_id}/assets/{asset_id}."""
 

@@ -55,6 +55,22 @@ def split(markdown: str) -> list[Section]:
     ]
 
 
+def introduction(markdown: str) -> str:
+    """Return the text before the guide's first section: its title and any preamble.
+
+    Args:
+        markdown: The guide's whole content.md.
+
+    Returns:
+        That text, or "" if the guide starts with a section.
+    """
+    headings = _headings(markdown)
+    end = headings[0].start if headings else len(markdown)
+    text = markdown[:end].rstrip()
+
+    return text + "\n" if text else ""
+
+
 def find(markdown: str, number: str) -> Section | None:
     """Return the section with this number, or None if the guide has none.
 

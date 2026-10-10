@@ -52,6 +52,27 @@ class PrototypeGuide(pydantic.BaseModel):
     versions: list[PrototypeGuideVersion]
 
 
+class GuideSection(pydantic.BaseModel):
+    """One section of a guide: where it sits in the outline, and its Markdown."""
+
+    number: str = pydantic.Field(
+        ...,
+        description="Dotted number, or the heading's slug for an unnumbered section",
+    )
+    heading: str
+    level: int = pydantic.Field(..., description="1 for a top-level section")
+    markdown: str
+
+
+class GuideSections(pydantic.BaseModel):
+    """A guide cut into its sections, in document order."""
+
+    introduction: str = pydantic.Field(
+        ..., description="The Markdown before the first section, title included"
+    )
+    sections: list[GuideSection]
+
+
 class PurgeResult(pydantic.BaseModel):
     """What a purge of prototype_guides/ removed."""
 
