@@ -86,3 +86,21 @@ class TestFind:
 
     def test_finds_nothing_for_an_unknown_number(self) -> None:
         assert sections.find(_GUIDE, "9") is None
+
+
+class TestIntroduction:
+    def test_is_the_text_before_the_first_section(self) -> None:
+        introduction = sections.introduction(_GUIDE)
+
+        assert introduction == (
+            "# Final Payment Case Check Guide\n\n"
+            "An introduction before the first section.\n"
+        )
+
+    def test_is_the_whole_guide_when_it_has_no_sections(self) -> None:
+        assert sections.introduction("# A title\n\nJust text.\n") == (
+            "# A title\n\nJust text.\n"
+        )
+
+    def test_is_empty_when_the_guide_starts_with_a_section(self) -> None:
+        assert sections.introduction("## 1 Background\n\nWhy.\n") == ""
