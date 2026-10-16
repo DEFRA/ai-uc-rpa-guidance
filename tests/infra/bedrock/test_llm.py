@@ -124,6 +124,18 @@ class TestFreshClientAfterIdle:
 
         assert provider.client is first
 
+    def test_counts_time_asleep_as_idle(self, mocker) -> None:
+        # A sleeping laptop pauses WSL's monotonic clocks; only the wall
+        # clock is put right on waking.
+        wall_clock = FakeClock()
+        mocker.patch.object(llm.time, "time", wall_clock)
+        mocker.patch.object(llm.time, "monotonic", return_value=0.0)
+        provider = llm.FreshAfterIdleProvider(Mock)
+        first = provider.client
+        wall_clock.now = 301
+
+        assert provider.client is not first
+
     @pytest.mark.parametrize("name", ["provider", "search_provider"])
     def test_every_bedrock_client_is_replaced_after_idle(self, name: str) -> None:
         assert isinstance(getattr(llm, name), llm.FreshAfterIdleProvider)
