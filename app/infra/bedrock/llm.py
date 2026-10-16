@@ -103,18 +103,20 @@ class FreshAfterIdleProvider(bedrock_providers.BedrockProvider):
     def __init__(
         self,
         new_client: Callable[[], Any],
-        clock: Callable[[], float] = time.monotonic,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         """Create the provider with its first client.
 
         Args:
             new_client: Makes a new Bedrock Runtime client.
-            clock: Gives the time in seconds; replaced in tests.
+            clock: Gives the time in seconds; replaced in tests. The wall
+                clock by default: a laptop's sleep pauses WSL's monotonic
+                clocks, and the connections die while they are paused.
         """
         super().__init__(bedrock_client=new_client())
         self._new_client = new_client
-        self._clock = clock
-        self._last_used = clock()
+        self._clock = clock or time.time
+        self._last_used = self._clock()
 
     @property
     def client(self) -> Any:
