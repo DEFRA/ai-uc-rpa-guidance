@@ -5,6 +5,7 @@ from typing import Any
 
 import boto3
 import botocore.config
+import botocore.exceptions
 from pydantic_ai.models import bedrock as bedrock_models
 from pydantic_ai.providers import bedrock as bedrock_providers
 
@@ -42,6 +43,12 @@ search_client_config = botocore.config.Config(
     retries={"mode": "standard", "total_max_attempts": 2},
 )
 
+# The failures botocore counts as the connection's, not Bedrock's reply's.
+CONNECTION_FAILURES = (
+    botocore.exceptions.ConnectionError,
+    botocore.exceptions.HTTPClientError,
+)
+
 
 def _log_failed_attempt(
     attempts: int,
@@ -63,11 +70,26 @@ def _log_failed_attempt(
 
 
 def _new_client(client_settings: botocore.config.Config) -> Any:
-    """Create a Bedrock Runtime client that logs each failed attempt."""
+    """Create a Bedrock Runtime client that logs each failed attempt.
+
+    A connection that times out or breaks has died with the network path, and
+    so have the others in the pool: the client closes them all, so the retry
+    and later calls open new ones instead of each waiting out a timeout.
+    """
     client = boto3.client(
         "bedrock-runtime", region_name=settings.aws_region, config=client_settings
     )
+
+    def close_connections_after_connection_failure(
+        caught_exception: Exception | None = None, **_kwargs: Any
+    ) -> None:
+        if isinstance(caught_exception, CONNECTION_FAILURES):
+            client.close()
+
     client.meta.events.register("needs-retry.bedrock-runtime", _log_failed_attempt)
+    client.meta.events.register(
+        "needs-retry.bedrock-runtime", close_connections_after_connection_failure
+    )
     return client
 
 

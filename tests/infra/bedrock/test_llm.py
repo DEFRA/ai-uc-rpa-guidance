@@ -177,3 +177,44 @@ class TestRetryLog:
             _emit_attempt(client, response=_reply(200))
 
         assert caplog.text == ""
+
+
+class TestFreshConnectionsAfterAFailedConnection:
+    """Test that a connection failure closes every pooled connection, not only its own.
+
+    A connection that dies without a word dies with the network path, and so do
+    the others in the pool; each one reused would cost a full timeout.
+    """
+
+    @pytest.fixture(params=["provider", "search_provider"])
+    def client(self, request: pytest.FixtureRequest) -> Any:
+        return getattr(llm, request.param).client
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            botocore.exceptions.ReadTimeoutError(endpoint_url="https://bedrock"),
+            botocore.exceptions.ConnectTimeoutError(endpoint_url="https://bedrock"),
+            botocore.exceptions.EndpointConnectionError(endpoint_url="https://bedrock"),
+            botocore.exceptions.ConnectionClosedError(endpoint_url="https://bedrock"),
+        ],
+        ids=type,
+    )
+    def test_closes_its_connections_after_a_connection_failure(
+        self, client: Any, failure: Exception, mocker
+    ) -> None:
+        close = mocker.spy(client, "close")
+
+        _emit_attempt(client, caught_exception=failure)
+
+        close.assert_called_once()
+
+    @pytest.mark.parametrize("status", [200, 429, 503])
+    def test_keeps_its_connections_after_a_reply(
+        self, client: Any, status: int, mocker
+    ) -> None:
+        close = mocker.spy(client, "close")
+
+        _emit_attempt(client, response=_reply(status))
+
+        close.assert_not_called()
