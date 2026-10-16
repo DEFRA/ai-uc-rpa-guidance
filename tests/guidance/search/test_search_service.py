@@ -11,6 +11,7 @@ from app.guidance.prototype import s3_repository
 from app.guidance.search import models, service
 from app.guidance.summaries import models as summary_models
 from app.guidance.summaries import repository as summary_repository
+from app.infra.bedrock import llm
 
 DOCUMENT_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 VERSION_ID = "bbbbbbbb-0000-0000-0000-000000000002"
@@ -332,3 +333,15 @@ class TestReporting:
         assert response.query == "sda"
         assert response.indexed_documents == 1
         assert response.duration_seconds >= 0
+
+
+class TestModel:
+    async def test_every_pass_uses_the_search_client(
+        self, search_service: service.SearchService
+    ) -> None:
+        first, second, third = _passes(_ranked((str(DOCUMENT_ID), "1")))
+        with first as ranker_run, second as assessor_run, third as answerer_run:
+            await search_service.search("sda")
+
+        for run in (ranker_run, assessor_run, answerer_run):
+            assert run.await_args.kwargs["model"] is llm.claude_sonnet_search

@@ -140,7 +140,7 @@ class SearchService:
                 index=index_text.render(summaries, by_document),
                 entries=entries,
             ),
-            model=llm.claude_sonnet,
+            model=llm.claude_sonnet_search,
             model_settings=RANKER_SETTINGS,
         )
 
@@ -231,7 +231,7 @@ class SearchService:
                         heading=result.heading,
                         section_markdown=markdown,
                     ),
-                    model=llm.claude_sonnet,
+                    model=llm.claude_sonnet_search,
                 )
 
             if not verdict.output.relevant:
@@ -289,7 +289,7 @@ class SearchService:
                     for result in results
                 },
             ),
-            model=llm.claude_sonnet,
+            model=llm.claude_sonnet_search,
         )
 
         return result.output if result.output.answered else None

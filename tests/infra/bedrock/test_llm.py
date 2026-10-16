@@ -1,7 +1,11 @@
 """Tests for the Bedrock LLM module."""
 
 import importlib
+import logging
+from typing import Any
+from unittest.mock import Mock
 
+import botocore.exceptions
 import pytest
 
 from app.infra.bedrock import llm
@@ -52,3 +56,165 @@ class TestBedrockClient:
             "mode": "standard",
             "total_max_attempts": 3,
         }
+
+
+class TestSearchClient:
+    """Test the client the AI search goes through: it gives up on a dead connection soon."""
+
+    def test_gives_up_opening_a_connection_after_10_seconds(self) -> None:
+        assert llm.search_provider.client.meta.config.connect_timeout == 10
+
+    def test_gives_up_waiting_for_a_reply_after_a_minute(self) -> None:
+        assert llm.search_provider.client.meta.config.read_timeout == 60
+
+    def test_tries_a_failed_call_once_more(self) -> None:
+        assert llm.search_provider.client.meta.config.retries == {
+            "mode": "standard",
+            "total_max_attempts": 2,
+        }
+
+    def test_is_the_one_the_search_model_uses(self) -> None:
+        assert llm.claude_sonnet_search.client is llm.search_provider.client
+
+
+class FakeClock:
+    """A clock the test moves on by hand."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class TestFreshClientAfterIdle:
+    """Test that a client left unused is replaced, so its pooled connections are not."""
+
+    @pytest.fixture
+    def clock(self) -> FakeClock:
+        return FakeClock()
+
+    @pytest.fixture
+    def provider(self, clock: FakeClock) -> llm.FreshAfterIdleProvider:
+        return llm.FreshAfterIdleProvider(Mock, clock=clock)
+
+    def test_keeps_its_client_within_5_minutes_of_the_last_use(
+        self, provider: llm.FreshAfterIdleProvider, clock: FakeClock
+    ) -> None:
+        first = provider.client
+        clock.now = 300
+
+        assert provider.client is first
+
+    def test_replaces_its_client_after_5_minutes_without_use(
+        self, provider: llm.FreshAfterIdleProvider, clock: FakeClock
+    ) -> None:
+        first = provider.client
+        clock.now = 301
+
+        assert provider.client is not first
+
+    def test_counts_the_idle_time_from_the_last_use(
+        self, provider: llm.FreshAfterIdleProvider, clock: FakeClock
+    ) -> None:
+        first = provider.client
+        clock.now = 200
+        _ = provider.client
+        clock.now = 400
+
+        assert provider.client is first
+
+    @pytest.mark.parametrize("name", ["provider", "search_provider"])
+    def test_every_bedrock_client_is_replaced_after_idle(self, name: str) -> None:
+        assert isinstance(getattr(llm, name), llm.FreshAfterIdleProvider)
+
+
+def _emit_attempt(client: Any, **outcome: Any) -> None:
+    """Tell the client's retry handlers how an attempt at a Converse call ended."""
+    client.meta.events.emit(
+        "needs-retry.bedrock-runtime.Converse",
+        endpoint=Mock(),
+        operation=client.meta.service_model.operation_model("Converse"),
+        attempts=1,
+        request_dict={"context": {}},
+        **({"response": None, "caught_exception": None} | outcome),
+    )
+
+
+def _reply(status: int) -> tuple[Mock, dict[str, Any]]:
+    return Mock(status_code=status), {}
+
+
+class TestRetryLog:
+    """Test that every failed attempt at a Bedrock call is logged."""
+
+    @pytest.fixture(params=["provider", "search_provider"])
+    def client(self, request: pytest.FixtureRequest) -> Any:
+        return getattr(llm, request.param).client
+
+    def test_logs_a_failed_connection(
+        self, client: Any, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        dead = botocore.exceptions.ReadTimeoutError(endpoint_url="https://bedrock")
+
+        with caplog.at_level(logging.WARNING, logger=llm.__name__):
+            _emit_attempt(client, caught_exception=dead)
+
+        assert "Converse attempt 1 failed: ReadTimeoutError" in caplog.text
+
+    def test_logs_an_error_reply(
+        self, client: Any, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING, logger=llm.__name__):
+            _emit_attempt(client, response=_reply(503))
+
+        assert "Converse attempt 1 failed: HTTP 503" in caplog.text
+
+    def test_logs_nothing_for_a_call_that_worked(
+        self, client: Any, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        with caplog.at_level(logging.WARNING, logger=llm.__name__):
+            _emit_attempt(client, response=_reply(200))
+
+        assert caplog.text == ""
+
+
+class TestFreshConnectionsAfterAFailedConnection:
+    """Test that a connection failure closes every pooled connection, not only its own.
+
+    A connection that dies without a word dies with the network path, and so do
+    the others in the pool; each one reused would cost a full timeout.
+    """
+
+    @pytest.fixture(params=["provider", "search_provider"])
+    def client(self, request: pytest.FixtureRequest) -> Any:
+        return getattr(llm, request.param).client
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            botocore.exceptions.ReadTimeoutError(endpoint_url="https://bedrock"),
+            botocore.exceptions.ConnectTimeoutError(endpoint_url="https://bedrock"),
+            botocore.exceptions.EndpointConnectionError(endpoint_url="https://bedrock"),
+            botocore.exceptions.ConnectionClosedError(endpoint_url="https://bedrock"),
+        ],
+        ids=type,
+    )
+    def test_closes_its_connections_after_a_connection_failure(
+        self, client: Any, failure: Exception, mocker
+    ) -> None:
+        close = mocker.spy(client, "close")
+
+        _emit_attempt(client, caught_exception=failure)
+
+        close.assert_called_once()
+
+    @pytest.mark.parametrize("status", [200, 429, 503])
+    def test_keeps_its_connections_after_a_reply(
+        self, client: Any, status: int, mocker
+    ) -> None:
+        close = mocker.spy(client, "close")
+
+        _emit_attempt(client, response=_reply(status))
+
+        close.assert_not_called()
