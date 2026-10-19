@@ -17,6 +17,7 @@ from app.guidance.summaries import router as summaries_router
 from app.guidance.summaries import worker as summaries_worker
 from app.health import router as health_router
 from app.publishing import router as publishing_router
+from app.quality import router as quality_router
 from app.review import router as review_router
 
 logger = getLogger(__name__)
@@ -42,6 +43,7 @@ app.add_middleware(tracing.TraceIdMiddleware)
 
 app.include_router(health_router.router)
 app.include_router(publishing_router.router)
+app.include_router(quality_router.router)
 app.include_router(critique_router.router)
 app.include_router(review_router.router)
 app.include_router(guidance_router.router)
