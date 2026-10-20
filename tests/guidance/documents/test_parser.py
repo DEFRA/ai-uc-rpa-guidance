@@ -7,6 +7,9 @@ from unittest.mock import AsyncMock
 
 import bson
 import docx
+import docx.opc.constants
+import docx.oxml
+import docx.oxml.ns
 import pytest
 
 from app.guidance.documents import models, parser, s3_repository
@@ -68,6 +71,27 @@ def _make_docx_with_inline_icon() -> bytes:
     return buf.getvalue()
 
 
+def _make_docx_with_link(url: str) -> bytes:
+    """Build a .docx whose paragraph holds a hyperlink to the given URL."""
+    doc = docx.Document()
+    doc.add_heading("Links", level=1)
+    paragraph = doc.add_paragraph("See ")
+    rel_id = paragraph.part.relate_to(
+        url, docx.opc.constants.RELATIONSHIP_TYPE.HYPERLINK, is_external=True
+    )
+    hyperlink = docx.oxml.OxmlElement("w:hyperlink")
+    hyperlink.set(docx.oxml.ns.qn("r:id"), rel_id)
+    run = docx.oxml.OxmlElement("w:r")
+    text = docx.oxml.OxmlElement("w:t")
+    text.text = "the other guide"
+    run.append(text)
+    hyperlink.append(run)
+    paragraph._p.append(hyperlink)
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
 def _make_document(
     path: str = "s3://source-bucket/doc-id/file-id",
 ) -> models.GuidanceDocument:
@@ -120,6 +144,24 @@ class TestPipelineDocumentParserSuccess:
         result = await parser_instance.parse(_make_document())
 
         assert result.error_message is None
+
+    @pytest.mark.asyncio
+    async def test_lists_the_documents_it_links_to(
+        self,
+        parser_instance: parser.PipelineDocumentParser,
+        s3_repo: AsyncMock,
+    ) -> None:
+        s3_repo.download_docx.return_value = _make_docx_with_link(
+            "https://defra.sharepoint.com/:w:/r/teams/Team3528/Final%20Payment/"
+            "CS%20Revenue%20Claims%20Processing%20to%20Final%20Payment%20Guide%202026.docx"
+            "?d=wf24dbbac9a5c485c8cd28f156a2506ab&csf=1&web=1"
+        )
+
+        result = await parser_instance.parse(_make_document())
+
+        assert result.linked_filenames == [
+            "CS Revenue Claims Processing to Final Payment Guide 2026.docx"
+        ]
 
     @pytest.mark.asyncio
     async def test_markdown_uploaded_to_s3(
