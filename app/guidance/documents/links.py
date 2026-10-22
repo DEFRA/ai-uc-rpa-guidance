@@ -6,7 +6,6 @@ uploaded document arrived with.
 """
 
 import urllib.parse
-from collections.abc import Iterator
 
 from app.guidance.pipeline import models as pipeline_models
 
@@ -35,25 +34,31 @@ def linked_filenames(tree: pipeline_models.DocumentTree) -> list[str]:
         linked_filename(span.hyperlink)
         for section in tree.sections
         for node in section.content
-        for span in _spans(node)
+        for spans in _span_lists(node)
+        for span in spans
         if isinstance(span, pipeline_models.InlineSpan) and span.hyperlink
     }
     return sorted(filename for filename in filenames if filename)
 
 
-def _spans(node: pipeline_models.ContentNode) -> Iterator[pipeline_models.Span]:
-    """Yield every span a content node holds, tables and callouts included."""
+def _span_lists(
+    node: pipeline_models.ContentNode,
+) -> list[list[pipeline_models.Span]]:
+    """Return the spans of each paragraph a content node holds, tables and callouts included."""
     if isinstance(node, pipeline_models.ParagraphNode):
-        yield from node.spans
+        return [node.spans]
     if isinstance(node, pipeline_models.ListNode):
-        for item in node.items:
-            yield from item.spans
+        return [item.spans for item in node.items]
     if isinstance(node, pipeline_models.CalloutNode):
-        for paragraph in node.paragraphs:
-            yield from paragraph.spans
+        return [paragraph.spans for paragraph in node.paragraphs]
     if isinstance(node, pipeline_models.TableNode):
-        rows = [node.header, *node.rows] if node.header else node.rows
-        for row in rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    yield from paragraph.spans
+        return [
+            paragraph.spans for cell in _cells(node) for paragraph in cell.paragraphs
+        ]
+    return []
+
+
+def _cells(table: pipeline_models.TableNode) -> list[pipeline_models.CellNode]:
+    """Return every cell of a table, header row included, in document order."""
+    rows = [table.header, *table.rows] if table.header else table.rows
+    return [cell for row in rows for cell in row.cells]
