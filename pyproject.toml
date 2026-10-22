@@ -23,7 +23,7 @@ dependencies = [
     "pydantic-ai-slim[bedrock]==1.102.0",
     "aiofiles==25.1.0",
     "python-docx==1.2.0",
-    "boto3==1.42.63",
+    "boto3==1.43.117",
 ]
 
 [dependency-groups]
@@ -116,4 +116,9 @@ ignore_errors = true
 
 [tool.uv]
 exclude-newer = "1 week"
+# Exempt from the cooldown so the trust bundle can pick up eMudhra G3 intermediate
+# revocations (https://blog.talosintelligence.com/compromised-intermediate-certificates/).
+# Exempt boto3/botocore so we can take botocore 1.43.117, whose vendored CA bundle
+# drops the Comodo AAA root that cross-signed the compromised eMudhra G3 root.
+exclude-newer-package = { certifi = false, boto3 = false, botocore = false }
 default-groups = ["dev", "scripts"]
