@@ -122,6 +122,18 @@ class TestUpdateDocument:
         assert fetched.filename == "updated.docx"
         assert fetched.status == models.ExtractionStatus.COMPLETE
 
+    async def test_keeps_the_documents_it_links_to(
+        self, repo: repository.GuidanceRepository
+    ) -> None:
+        created = await repo.create_document(_make_document())
+
+        created.linked_filenames = ["Other Guide.docx"]
+        await repo.update_document(created)
+
+        fetched = await repo.get_document(created.id)
+        assert fetched is not None
+        assert fetched.linked_filenames == ["Other Guide.docx"]
+
     async def test_sets_updated_at(self, repo: repository.GuidanceRepository) -> None:
         document = _make_document()
         created = await repo.create_document(document)
@@ -131,6 +143,36 @@ class TestUpdateDocument:
         result = await repo.update_document(created)
 
         assert result.updated_at >= original_updated_at
+
+
+class TestGetDocumentWithoutLinks:
+    async def test_reads_a_document_stored_before_links_were_kept_as_linking_to_none(
+        self,
+        repo: repository.GuidanceRepository,
+        mongo_db: pymongo.asynchronous.database.AsyncDatabase,
+    ) -> None:
+        created = await repo.create_document(_make_document())
+        await mongo_db[repository.COLLECTION_NAME].update_one(
+            {"_id": created.id}, {"$unset": {"linked_filenames": ""}}
+        )
+
+        fetched = await repo.get_document(created.id)
+
+        assert fetched is not None
+        assert fetched.linked_filenames == []
+
+
+class TestListOtherDocuments:
+    async def test_returns_every_document_but_the_one_given(
+        self, repo: repository.GuidanceRepository
+    ) -> None:
+        this = await repo.create_document(_make_document(filename="this.docx"))
+        await repo.create_document(_make_document(filename="first.docx"))
+        await repo.create_document(_make_document(filename="second.docx"))
+
+        others = await repo.list_other_documents(this.id)
+
+        assert sorted(d.filename for d in others) == ["first.docx", "second.docx"]
 
 
 class TestListDocuments:

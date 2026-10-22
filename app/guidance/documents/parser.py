@@ -5,12 +5,12 @@ import io
 import json
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 import docx
 
-from app.guidance.documents import models, s3_repository
+from app.guidance.documents import links, models, s3_repository
 from app.guidance.pipeline import models as pipeline_models
 from app.guidance.pipeline import service as pipeline_service
 from app.guidance.pipeline.renderers import markdown as markdown_renderer
@@ -85,6 +85,7 @@ class ParseResult:
     content: str | None = None
     title: str | None = None
     error_message: str | None = None
+    linked_filenames: list[str] = field(default_factory=list)
 
 
 class DocumentParser(Protocol):
@@ -181,6 +182,7 @@ class PipelineDocumentParser:
                     status=models.ExtractionStatus.COMPLETE,
                     content=rendered_markdown,
                     title=inferred_title,
+                    linked_filenames=links.linked_filenames(tree),
                 )
 
         except Exception as exc:

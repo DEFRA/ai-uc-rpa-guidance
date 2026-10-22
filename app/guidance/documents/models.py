@@ -31,6 +31,7 @@ class GuidanceDocument:
     created_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
     error_message: str | None = None
+    linked_filenames: list[str] = field(default_factory=list)
 
     @classmethod
     def from_mongo_doc(cls, doc: dict[str, Any]) -> GuidanceDocument:
@@ -54,4 +55,5 @@ class GuidanceDocument:
             created_at=doc["created_at"],
             updated_at=doc["updated_at"],
             error_message=doc.get("error_message"),
+            linked_filenames=doc.get("linked_filenames", []),
         )

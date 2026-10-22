@@ -49,6 +49,7 @@ class GuidanceRepository:
             "created_at": document.created_at,
             "updated_at": document.updated_at,
             "error_message": document.error_message,
+            "linked_filenames": document.linked_filenames,
         }
 
         result = await self.collection.insert_one(doc_dict)
@@ -98,6 +99,7 @@ class GuidanceRepository:
             "content_hash": document.content_hash,
             "updated_at": document.updated_at,
             "error_message": document.error_message,
+            "linked_filenames": document.linked_filenames,
         }
 
         await self.collection.update_one(
@@ -107,6 +109,21 @@ class GuidanceRepository:
         logger.info("Updated guidance document %s", document.id)
 
         return document
+
+    async def list_other_documents(
+        self,
+        document_id: uuid.UUID,
+    ) -> list[models.GuidanceDocument]:
+        """List every guidance document except the one given.
+
+        Args:
+            document_id: The document UUID to leave out.
+
+        Returns:
+            The other documents, in no particular order.
+        """
+        cursor = self.collection.find({"_id": {"$ne": document_id}})
+        return [models.GuidanceDocument.from_mongo_doc(doc) async for doc in cursor]
 
     async def list_documents(
         self,

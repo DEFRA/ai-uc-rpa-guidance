@@ -54,8 +54,37 @@ class PipelineExecutor:
         if result.title is not None:
             document.title = result.title
         document.error_message = result.error_message
+        document.linked_filenames = result.linked_filenames
         await self._repo.update_document(document)
         logger.info("Pipeline execution complete for document %s", document.id)
+        await self._log_links(document)
+
+    async def _log_links(self, document: models.GuidanceDocument) -> None:
+        """Log each link between the document and the documents already uploaded.
+
+        Both ways round, so that whichever of two linked documents is uploaded
+        second, its upload shows the link it makes and the link made to it.
+
+        Args:
+            document: The guidance document just parsed.
+        """
+        for other in await self._repo.list_other_documents(document.id):
+            if other.filename and other.filename in document.linked_filenames:
+                logger.info(
+                    "Document %s (%r) refers to already uploaded document %s (%r)",
+                    document.id,
+                    document.filename,
+                    other.id,
+                    other.filename,
+                )
+            if document.filename and document.filename in other.linked_filenames:
+                logger.info(
+                    "Document %s (%r) is referred to by already uploaded document %s (%r)",
+                    document.id,
+                    document.filename,
+                    other.id,
+                    other.filename,
+                )
 
 
 class BackgroundTaskPipelineTrigger:
