@@ -160,10 +160,14 @@ class TestPipelineExecutorLinks:
             await executor.execute(fpg)
 
         assert [m for m in caplog.messages if "already uploaded document" in m] == [
-            f"Document {fpg.id} ({FPG!r}) refers to already uploaded document "
-            f"{ec.id} ({EC!r})",
-            f"Document {fpg.id} ({FPG!r}) is referred to by already uploaded document "
-            f"{ec.id} ({EC!r})",
+            (
+                f"Document {fpg.id} ({FPG!r}) refers to already uploaded document "
+                f"{ec.id} ({EC!r})"
+            ),
+            (
+                f"Document {fpg.id} ({FPG!r}) is referred to by already uploaded "
+                f"document {ec.id} ({EC!r})"
+            ),
         ]
 
     async def test_logs_no_link_when_no_uploaded_document_matches(
