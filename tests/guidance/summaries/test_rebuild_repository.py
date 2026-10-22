@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator, Generator
 import pymongo
 import pymongo.asynchronous.database
 import pytest
-from testcontainers.mongodb import MongoDbContainer
+from testcontainers.community.mongodb import MongoDbContainer
 
 from app.guidance.summaries import models, repository
 

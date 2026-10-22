@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pymongo
 import pymongo.asynchronous.database
 import pytest
-from testcontainers.mongodb import MongoDbContainer
+from testcontainers.community.mongodb import MongoDbContainer
 
 from app.publishing.jobs import models, repository
 

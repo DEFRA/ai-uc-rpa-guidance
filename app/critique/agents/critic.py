@@ -166,8 +166,10 @@ async def get_instructions(
         parts.extend(
             [
                 "# Previous review findings",
-                "The document above is a revision. Verify each of these findings "
-                "has been resolved and that the revision is text-level only:",
+                (
+                    "The document above is a revision. Verify each of these findings "
+                    "has been resolved and that the revision is text-level only:"
+                ),
                 findings_json,
             ]
         )
