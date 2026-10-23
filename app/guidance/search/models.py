@@ -61,6 +61,32 @@ class Relevance(pydantic.BaseModel):
             "it does not answer them after all."
         ),
     )
+    passage_start: str | None = pydantic.Field(
+        None,
+        description=(
+            "Where relevant: the first few words of the passage that answers "
+            "the query, copied exactly from the section's Markdown."
+        ),
+    )
+    passage_end: str | None = pydantic.Field(
+        None,
+        description=(
+            "Where relevant: the last few words of that passage, copied "
+            "exactly from the section's Markdown."
+        ),
+    )
+
+
+class QueryKind(pydantic.BaseModel):
+    """Whether a search is phrased in natural language or is keywords."""
+
+    natural_language: bool = pydantic.Field(
+        ...,
+        description=(
+            "True where the search is a question or an instruction in natural "
+            "language; false where it is keywords to find."
+        ),
+    )
 
 
 class Citation(pydantic.BaseModel):
@@ -127,6 +153,15 @@ class AssessDependencies:
 
 
 @dataclass
+class ClassifyDependencies:
+    """Dependencies for deciding what kind of search a query is."""
+
+    prompt_repository: prompt_repo.AbstractPromptRepository = field(
+        default_factory=_prompts
+    )
+
+
+@dataclass
 class AnswerDependencies:
     """Dependencies for writing the overview."""
 
@@ -150,3 +185,6 @@ class SearchResult:
     reason: str
     start_path: str
     checked: bool
+    # The passage of the section that answers the query, cut from the
+    # section's own Markdown (see excerpt.py); None where none was marked.
+    excerpt: str | None = None

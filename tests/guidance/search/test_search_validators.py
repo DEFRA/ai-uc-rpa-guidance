@@ -4,6 +4,7 @@ import dataclasses
 from typing import Any, cast
 
 import pydantic_ai
+import pytest
 
 from app.guidance.search import models
 from app.guidance.search.agents import answerer, ranker
@@ -113,3 +114,45 @@ class TestValidateCitations:
         )
 
         assert [citation.section_number for citation in output.cited] == ["1"]
+
+
+def _answer_with_passages() -> Any:
+    return StubRunContext(
+        deps=models.AnswerDependencies(
+            query="where are the tables?",
+            results=(
+                "- document_id: ...\n"
+                "  passage from the guide:\n"
+                "    Check, using the [Tables](https://a.example/tables)"
+            ),
+            cited={(DOCUMENT, "1")},
+        )
+    )
+
+
+async def _validate_links(output: models.SearchAnswer) -> models.SearchAnswer:
+    return await answerer.validate_links_are_the_guides(
+        cast(
+            pydantic_ai.RunContext[models.AnswerDependencies], _answer_with_passages()
+        ),
+        output,
+    )
+
+
+class TestValidateLinks:
+    async def test_keeps_a_link_copied_from_a_passage(self) -> None:
+        answer = "They are in the [Tables](https://a.example/tables)."
+
+        output = await _validate_links(
+            models.SearchAnswer(answered=True, answer=answer)
+        )
+
+        assert output.answer == answer
+
+    async def test_asks_again_for_a_link_no_passage_holds(self) -> None:
+        output = models.SearchAnswer(
+            answered=True, answer="See [the tables](https://invented.example/t)."
+        )
+
+        with pytest.raises(pydantic_ai.ModelRetry):
+            await _validate_links(output)

@@ -36,6 +36,7 @@ _CONTENT = (
 RANKER = "app.guidance.search.service.ranker.ranker_agent.run"
 ASSESSOR = "app.guidance.search.service.assessor.assessor_agent.run"
 ANSWERER = "app.guidance.search.service.answerer.answerer_agent.run"
+CLASSIFIER = "app.guidance.search.service.classifier.classifier_agent.run"
 
 
 def _summary() -> summary_models.DocumentSummary:
@@ -77,9 +78,16 @@ def _ranked(*refs: tuple[str, str | None]) -> Mock:
     return result
 
 
-def _relevance(relevant: bool, reason: str = "It tells them what to do.") -> Mock:
+def _relevance(
+    relevant: bool,
+    reason: str = "It tells them what to do.",
+    passage: tuple[str, str] | None = None,
+) -> Mock:
+    start, end = passage or (None, None)
     result = Mock()
-    result.output = models.Relevance(relevant=relevant, reason=reason)
+    result.output = models.Relevance(
+        relevant=relevant, reason=reason, passage_start=start, passage_end=end
+    )
     return result
 
 
@@ -199,6 +207,42 @@ class TestSearch:
         )
 
         assert response.results[0].reason == "It gives them the SDA check."
+
+    async def test_shows_the_passage_of_the_section_that_answers_the_query(
+        self, search_service: service.SearchService
+    ) -> None:
+        response = await _search(
+            search_service,
+            "sda",
+            _ranked((str(DOCUMENT_ID), "1")),
+            relevance=_relevance(True, passage=("The section 1", "itself.")),
+        )
+
+        assert response.results[0].excerpt == "The section 1 itself."
+
+    async def test_shows_no_passage_where_its_quotes_are_not_in_the_section(
+        self, search_service: service.SearchService
+    ) -> None:
+        response = await _search(
+            search_service,
+            "sda",
+            _ranked((str(DOCUMENT_ID), "1")),
+            relevance=_relevance(True, passage=("Words it never uses", "itself.")),
+        )
+
+        assert response.results[0].excerpt is None
+
+    async def test_gives_the_answer_the_passage_from_the_guide(
+        self, search_service: service.SearchService
+    ) -> None:
+        first, second, third = _passes(
+            _ranked((str(DOCUMENT_ID), "1")),
+            relevance=_relevance(True, passage=("The section 1", "itself.")),
+        )
+        with first, second, third as answer:
+            await search_service.search("sda")
+
+        assert "The section 1 itself." in answer.await_args.kwargs["deps"].results
 
     async def test_drops_a_section_that_does_not_bear_the_match_out(
         self, search_service: service.SearchService
@@ -345,3 +389,38 @@ class TestModel:
 
         for run in (ranker_run, assessor_run, answerer_run):
             assert run.await_args.kwargs["model"] is llm.claude_sonnet_search
+
+
+def _kind(natural_language: bool) -> Mock:
+    result = Mock()
+    result.output = models.QueryKind(natural_language=natural_language)
+    return result
+
+
+class TestKind:
+    async def test_is_natural_language_where_the_model_reads_it_as_such(
+        self, search_service: service.SearchService
+    ) -> None:
+        with patch(CLASSIFIER, new_callable=AsyncMock, return_value=_kind(True)):
+            response = await search_service.kind("show me the option tables")
+
+        assert response.natural_language is True
+
+    async def test_is_keywords_where_the_model_reads_them_as_such(
+        self, search_service: service.SearchService
+    ) -> None:
+        with patch(CLASSIFIER, new_callable=AsyncMock, return_value=_kind(False)):
+            response = await search_service.kind("land use matrix")
+
+        assert response.natural_language is False
+
+    async def test_gives_the_model_the_search_as_typed_on_the_search_client(
+        self, search_service: service.SearchService
+    ) -> None:
+        with patch(
+            CLASSIFIER, new_callable=AsyncMock, return_value=_kind(True)
+        ) as classify:
+            await search_service.kind("NA02 meaning")
+
+        assert classify.await_args.args[0] == "NA02 meaning"
+        assert classify.await_args.kwargs["model"] is llm.claude_sonnet_search

@@ -21,6 +21,13 @@ class SearchResultResponse(pydantic.BaseModel):
     )
     summary: str = pydantic.Field(..., description="What the index holds about it")
     reason: str = pydantic.Field(..., description="Why it answers the query")
+    excerpt: str | None = pydantic.Field(
+        None,
+        description=(
+            "The passage of the section that answers the query, as Markdown "
+            "from the guide itself, with its links; null where none was marked"
+        ),
+    )
     start_path: str = pydantic.Field(..., description="Where it is served")
     checked: bool = pydantic.Field(
         ...,
@@ -61,4 +68,20 @@ class SearchResponse(pydantic.BaseModel):
     )
     duration_seconds: float = pydantic.Field(
         ..., description="How long the search took, wall clock"
+    )
+
+
+class QueryKindResponse(pydantic.BaseModel):
+    """What kind of search a query is."""
+
+    model_config = pydantic.ConfigDict(
+        populate_by_name=True, alias_generator=pydantic.alias_generators.to_camel
+    )
+
+    natural_language: bool = pydantic.Field(
+        ...,
+        description=(
+            "True where it is a question or an instruction in natural language, "
+            "for the AI search; false where it is keywords to find"
+        ),
     )
