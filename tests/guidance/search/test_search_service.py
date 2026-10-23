@@ -1,11 +1,13 @@
 """Tests for the guidance search service."""
 
 import json
+import logging
 import uuid
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from pydantic_ai import usage
 
 from app.guidance.prototype import s3_repository
 from app.guidance.search import models, service
@@ -424,3 +426,45 @@ class TestKind:
 
         assert classify.await_args.args[0] == "NA02 meaning"
         assert classify.await_args.kwargs["model"] is llm.claude_sonnet_search
+
+
+def _spending(result: Mock, input_tokens: int, output_tokens: int) -> Any:
+    """A pass's run that adds what one model call used to the usage it is given."""
+
+    async def run(*_args: Any, **kwargs: Any) -> Mock:
+        usage = kwargs["usage"]
+        usage.requests += 1
+        usage.input_tokens += input_tokens
+        usage.output_tokens += output_tokens
+        return result
+
+    return run
+
+
+class TestTokens:
+    async def test_logs_the_tokens_every_pass_of_a_search_used(
+        self, search_service: service.SearchService, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        ranked = _ranked((str(DOCUMENT_ID), "1"), (str(DOCUMENT_ID), "2"))
+        with (
+            patch(RANKER, side_effect=_spending(ranked, 1000, 10)),
+            patch(ASSESSOR, side_effect=_spending(_relevance(True), 200, 20)),
+            patch(ANSWERER, side_effect=_spending(_answer(), 300, 30)),
+        ):
+            await search_service.search("where is the sda check?")
+
+        assert "[Search] Used 1700 input and 80 output tokens in 4 requests" in (
+            caplog.text
+        )
+
+    async def test_logs_the_tokens_deciding_the_kind_of_search_used(
+        self, search_service: service.SearchService, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        verdict = _kind(True)
+        verdict.usage = usage.RunUsage(requests=1, input_tokens=250, output_tokens=5)
+        with patch(CLASSIFIER, new_callable=AsyncMock, return_value=verdict):
+            await search_service.kind("NA02 meaning")
+
+        assert "[Search] Kind used 250 input and 5 output tokens" in caplog.text

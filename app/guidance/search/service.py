@@ -7,6 +7,7 @@ import textwrap
 import time
 import uuid
 
+from pydantic_ai import usage as run_usage
 from pydantic_ai.models import bedrock
 
 from app.guidance.prototype import manifest as prototype_manifest
@@ -62,6 +63,13 @@ class SearchService:
             model=llm.claude_sonnet_search,
         )
 
+        used = verdict.usage
+        logger.info(
+            "[Search] Kind used %d input and %d output tokens",
+            used.input_tokens,
+            used.output_tokens,
+        )
+
         return api_schemas.QueryKindResponse(
             natural_language=verdict.output.natural_language
         )
@@ -91,14 +99,25 @@ class SearchService:
             logger.info("[Search] Nothing is indexed; no results for %r", query)
             return self._response(query, None, [], 0, started)
 
-        ranked = await self._rank(query, summaries, by_document)
+        # Every pass adds the tokens it used to this one count.
+        used = run_usage.RunUsage()
+
+        ranked = await self._rank(query, summaries, by_document, used)
         results = self._resolve(ranked, summaries, by_document)
         got_ranking = time.monotonic()
 
-        results = await self._assess(query, results)
+        results = await self._assess(query, results, used)
         assessed = time.monotonic()
 
-        answer = await self._answer(query, results)
+        answer = await self._answer(query, results, used)
+
+        # Without the query: an operator may type a person's details into it.
+        logger.info(
+            "[Search] Used %d input and %d output tokens in %d requests",
+            used.input_tokens,
+            used.output_tokens,
+            used.requests,
+        )
 
         logger.info(
             "[Search] %r answered in %.1fs with %d result(s) "
@@ -136,6 +155,7 @@ class SearchService:
         query: str,
         summaries: list[summary_models.DocumentSummary],
         by_document: dict[str, list[summary_models.SectionSummary]],
+        used: run_usage.RunUsage,
     ) -> list[models.RankedResult]:
         """Ask the ranker which entries of the index answer the query."""
         entries: set[tuple[str, str | None]] = set()
@@ -156,6 +176,7 @@ class SearchService:
             ),
             model=llm.claude_sonnet_search,
             model_settings=RANKER_SETTINGS,
+            usage=used,
         )
 
         return result.output.results
@@ -209,7 +230,10 @@ class SearchService:
         return resolved
 
     async def _assess(
-        self, query: str, results: list[models.SearchResult]
+        self,
+        query: str,
+        results: list[models.SearchResult],
+        used: run_usage.RunUsage,
     ) -> list[models.SearchResult]:
         """Read each proposed section in full and keep the ones that hold up.
 
@@ -246,6 +270,7 @@ class SearchService:
                         section_markdown=markdown,
                     ),
                     model=llm.claude_sonnet_search,
+                    usage=used,
                 )
 
             if not verdict.output.relevant:
@@ -288,7 +313,10 @@ class SearchService:
         return section.markdown
 
     async def _answer(
-        self, query: str, results: list[models.SearchResult]
+        self,
+        query: str,
+        results: list[models.SearchResult],
+        used: run_usage.RunUsage,
     ) -> models.SearchAnswer | None:
         """Write the overview from the results that survived, if they support one."""
         if not results:
@@ -305,6 +333,7 @@ class SearchService:
                 },
             ),
             model=llm.claude_sonnet_search,
+            usage=used,
         )
 
         return result.output if result.output.answered else None
