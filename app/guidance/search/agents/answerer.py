@@ -4,7 +4,7 @@ import logging
 
 import pydantic_ai
 
-from app.guidance.search import models
+from app.guidance.search import excerpt, models
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,33 @@ async def validate_citations_are_results(
         logger.info("[Search] Dropped %d citation(s) outside the results", dropped)
 
     return output.model_copy(update={"cited": cited})
+
+
+@answerer_agent.output_validator
+async def validate_links_are_the_guides(
+    ctx: pydantic_ai.RunContext[models.AnswerDependencies],
+    output: models.SearchAnswer,
+) -> models.SearchAnswer:
+    """Keep the answer's links to the ones the guide itself gives.
+
+    The operator follows a link in the answer as they would one in the guide,
+    so an address the model wrote rather than copied from a passage could
+    send them anywhere. Ask again rather than show it.
+    """
+    invented = [
+        address
+        for address in excerpt.link_addresses(output.answer)
+        if address not in ctx.deps.results
+    ]
+
+    if invented:
+        message = (
+            "Give only links copied exactly from a passage from the guide. "
+            f"Not in any passage: {', '.join(invented)}"
+        )
+        raise pydantic_ai.ModelRetry(message)
+
+    return output
 
 
 @answerer_agent.instructions

@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import textwrap
 import time
 import uuid
 
@@ -11,8 +12,8 @@ from pydantic_ai.models import bedrock
 from app.guidance.prototype import manifest as prototype_manifest
 from app.guidance.prototype import s3_repository as prototype_s3_repository
 from app.guidance.prototype import sections as prototype_sections
-from app.guidance.search import api_schemas, index_text, models
-from app.guidance.search.agents import answerer, assessor, ranker
+from app.guidance.search import api_schemas, excerpt, index_text, models
+from app.guidance.search.agents import answerer, assessor, classifier, ranker
 from app.guidance.summaries import models as summary_models
 from app.guidance.summaries import repository as summary_repository
 from app.infra.bedrock import llm
@@ -51,6 +52,19 @@ class SearchService:
         self.summaries = summaries
         self.sections = sections
         self.guides = guides
+
+    async def kind(self, query: str) -> api_schemas.QueryKindResponse:
+        """Decide whether a query is natural language, for the AI search, or
+        keywords to find. One quick model call, made before either search."""
+        verdict = await classifier.classifier_agent.run(
+            query,
+            deps=models.ClassifyDependencies(),
+            model=llm.claude_sonnet_search,
+        )
+
+        return api_schemas.QueryKindResponse(
+            natural_language=verdict.output.natural_language
+        )
 
     async def search(self, query: str) -> api_schemas.SearchResponse:
         """Answer a query from the index, checking the sections it proposes.
@@ -244,6 +258,7 @@ class SearchService:
                 return None
 
             result.reason = verdict.output.reason
+            result.excerpt = _passage(markdown, verdict.output)
             result.checked = True
             return result
 
@@ -331,16 +346,38 @@ class SearchService:
         )
 
 
+def _passage(markdown: str, relevance: models.Relevance) -> str | None:
+    """The passage the assessor marked, cut from the section, if it marked one."""
+    if relevance.passage_start is None or relevance.passage_end is None:
+        return None
+
+    return excerpt.cut(markdown, relevance.passage_start, relevance.passage_end)
+
+
 def _render_results(results: list[models.SearchResult]) -> str:
     """Render the results as the text the answerer is given."""
-    return "\n\n".join(
+    return "\n\n".join(_render_result(result) for result in results)
+
+
+def _render_result(result: models.SearchResult) -> str:
+    """One result, with the guide's own passage where one was marked: the
+    answerer answers from it, and takes any link it gives from it."""
+    rendered = (
         f"- document_id: {result.document_id}\n"
         f"  section_number: {result.section_number or 'null'}\n"
         f"  document: {result.document_title}\n"
         f"  section: {result.heading}\n"
         f"  index summary: {result.summary}\n"
         f"  what it gives the operator: {result.reason}"
-        for result in results
+    )
+
+    if result.excerpt is None:
+        return rendered
+
+    return (
+        f"{rendered}\n"
+        f"  passage from the guide:\n"
+        f"{textwrap.indent(result.excerpt, '    ')}"
     )
 
 
@@ -355,6 +392,7 @@ def _result_response(
         heading=result.heading,
         summary=result.summary,
         reason=result.reason,
+        excerpt=result.excerpt,
         start_path=result.start_path,
         checked=result.checked,
     )

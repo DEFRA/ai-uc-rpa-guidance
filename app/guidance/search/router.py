@@ -52,3 +52,41 @@ async def search_guidance(
         The overview and the ranked results.
     """
     return await search_service.search(q)
+
+
+@router.get(
+    "/kind",
+    status_code=fastapi.status.HTTP_200_OK,
+    responses={
+        fastapi.status.HTTP_200_OK: {
+            "description": "Whether the query is natural language or keywords",
+        },
+    },
+)
+async def search_kind(
+    search_service: Annotated[
+        service.SearchService,
+        fastapi.Depends(dependencies.get_search_service),
+    ],
+    q: Annotated[
+        str,
+        fastapi.Query(
+            min_length=1,
+            max_length=MAX_QUERY_LENGTH,
+            description="What the operator typed",
+        ),
+    ],
+) -> api_schemas.QueryKindResponse:
+    """Decide whether a query is natural language or keywords.
+
+    A question or an instruction goes to the AI search; keywords are found in
+    the guides themselves. One quick model call.
+
+    Args:
+        search_service: The search service, injected via FastAPI DI.
+        q: The query as the operator typed it.
+
+    Returns:
+        Whether it is natural language.
+    """
+    return await search_service.kind(q)
